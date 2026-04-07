@@ -11,7 +11,7 @@ a = Analysis(
     ['main.py'],
     pathex=[],
     binaries=[('samples/ffmpeg.exe', 'samples')],
-    datas=[('coaching', 'coaching'), ('core', 'core'), ('ui', 'ui')],
+    datas=[('coaching', 'coaching'), ('core', 'core'), ('ui', 'ui'), ('assets', 'assets')],
     hiddenimports=hiddenimports,
     hookspath=[],
     hooksconfig={},
