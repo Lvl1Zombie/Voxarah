@@ -20,6 +20,10 @@ audioflow/samples/ffmpeg.exe
 # Claude Code
 .claude/
 
+# Test audio files
+Test mp3/
+audioflow/assets/preview_check.png
+
 # OS
 Thumbs.db
 Desktop.ini
