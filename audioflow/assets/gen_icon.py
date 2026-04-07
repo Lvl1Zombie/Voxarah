@@ -1,114 +1,86 @@
 """
-Generate Voxarah icon based on the original hexagon + diamond design.
-Scales the original 22x22 canvas drawing to high resolution.
-
-Original design (from ui/app.py initial commit):
-  pts = [(11,1),(21,6),(21,16),(11,21),(1,16),(1,6)]  # hexagon
-  Vertical center line: (11,4) to (11,18)
-  Internal V lines (left): (5,8)→(11,4), (5,14)→(11,18)
-  Internal V lines (right): (17,8)→(11,4), (17,14)→(11,18)
+Generate Voxarah logo_hd.png and icon.ico — Hex Shield design.
+Pointy-top hexagon, double-headed arrow, 4 dots. #F5C518 on #080808.
 """
-from PIL import Image, ImageDraw, ImageFilter
-import io, os, struct
+import math, io, os, struct
+from PIL import Image, ImageDraw
 
-BLACK  = (8,   8,   8,   255)
-YELLOW = (245, 197, 24,  255)
-SHINE  = (255, 230, 120, 180)
+BLACK      = (8,   8,   8,   255)
+YELLOW     = (245, 197, 24,  255)
+YELLOW_DIM = (245, 197, 24,  150)   # inner hex: same hue, ~60% opacity
 
-ORIG = 22  # original canvas size
-PAD  = 0.09  # 9% padding each side so hexagon doesn't clip at small icon sizes
 
-def scale(coord, s):
-    usable = s * (1 - 2 * PAD)
-    return int(PAD * s + coord / ORIG * usable)
+def draw_hex_shield(size: int) -> Image.Image:
+    """Render the Hex Shield at `size` x `size`, transparent background."""
+    # 4x supersampling for clean anti-aliased edges
+    SS = 4
+    S  = size * SS
+    img  = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
 
-def draw_master(s: int = 1024) -> Image.Image:
-    img = Image.new("RGBA", (s, s), BLACK)
-    d = ImageDraw.Draw(img)
+    cx = cy = S / 2
 
-    # Outer border frame (matches gen_icon.py style)
-    mg = int(s * 0.022)
-    bw = max(2, int(s * 0.006))
-    d.rectangle([mg, mg, s - mg - 1, s - mg - 1],
-                outline=(245, 197, 24, 55), width=bw)
+    # All radii/positions expressed as fraction of size, then scaled to S
+    def px(frac):
+        return frac * S
 
-    # Corner accent ticks
-    tk_len = int(s * 0.055)
-    tw = max(2, int(s * 0.009))
-    for cx, cy in [(mg, mg), (s - mg, mg), (mg, s - mg), (s - mg, s - mg)]:
-        sx = 1 if cx == mg else -1
-        sy = 1 if cy == mg else -1
-        d.line([(cx, cy), (cx + sx * tk_len, cy)], fill=YELLOW, width=tw)
-        d.line([(cx, cy), (cx, cy + sy * tk_len)], fill=YELLOW, width=tw)
+    def hex_pts(r_frac):
+        """Pointy-top hexagon, radius as fraction of S."""
+        pts = []
+        for i in range(6):
+            a = math.radians(-90 + i * 60)
+            pts.append((cx + px(r_frac) * math.cos(a),
+                        cy + px(r_frac) * math.sin(a)))
+        return pts
 
-    # Scale original hexagon points to new canvas
-    orig_pts = [(11,1),(21,6),(21,16),(11,21),(1,16),(1,6)]
-    hex_pts = [(scale(x, s), scale(y, s)) for x, y in orig_pts]
+    # Stroke widths in supersampled pixels (divide by SS to get display px)
+    lw_outer = max(SS, round(0.020 * S))   # ~1.0 display px
+    lw_inner = max(SS, round(0.012 * S))   # ~0.6 display px
+    shaft_w  = max(SS, round(0.012 * S))   # ~0.6 display px
+    dot_r    = max(SS, round(0.020 * S))   # ~1.0 display px radius
 
-    # Glow layer
-    glow = Image.new("RGBA", (s, s), (0, 0, 0, 0))
-    gd = ImageDraw.Draw(glow)
-    gd.polygon(hex_pts, outline=(245, 197, 24, 60), fill=None, width=max(2, int(s * 0.008)))
-    glow = glow.filter(ImageFilter.GaussianBlur(radius=int(s * 0.015)))
-    img = Image.alpha_composite(img, glow)
+    # ── Outer hexagon ────────────────────────────────────────────────────
+    draw.polygon(hex_pts(0.420), outline=YELLOW,     fill=None, width=lw_outer)
 
-    d2 = ImageDraw.Draw(img)
+    # ── Inner hexagon ────────────────────────────────────────────────────
+    draw.polygon(hex_pts(0.300), outline=YELLOW_DIM, fill=None, width=lw_inner)
 
-    # Hexagon outline
-    lw = max(3, int(s * 0.012))
-    d2.polygon(hex_pts, outline=YELLOW, fill=None, width=lw)
+    # ── Double-headed arrow ──────────────────────────────────────────────
+    tip_top_y    = cx - px(0.350)   # tip of top arrow
+    tip_bot_y    = cx + px(0.350)   # tip of bottom arrow
+    base_top_y   = cx - px(0.195)   # base of top arrowhead
+    base_bot_y   = cx + px(0.195)   # base of bottom arrowhead
+    arrow_hw     = px(0.072)        # half-width of arrowhead (narrower/sharper)
 
-    # Internal diamond/V lines
-    # Top center: (11,4), Bottom center: (11,18)
-    top    = (scale(11, s), scale(4,  s))
-    bottom = (scale(11, s), scale(18, s))
-    left_top    = (scale(5,  s), scale(8,  s))
-    left_bot    = (scale(5,  s), scale(14, s))
-    right_top   = (scale(17, s), scale(8,  s))
-    right_bot   = (scale(17, s), scale(14, s))
+    draw.line([(cx, base_top_y), (cx, base_bot_y)], fill=YELLOW, width=shaft_w)
+    draw.polygon([(cx, tip_top_y), (cx - arrow_hw, base_top_y), (cx + arrow_hw, base_top_y)], fill=YELLOW)
+    draw.polygon([(cx, tip_bot_y), (cx - arrow_hw, base_bot_y), (cx + arrow_hw, base_bot_y)], fill=YELLOW)
 
-    ilw = max(2, int(s * 0.008))
+    # ── Four dots ────────────────────────────────────────────────────────
+    for fx, fy in [(0.125, 0.420), (0.875, 0.420), (0.125, 0.580), (0.875, 0.580)]:
+        x, y = px(fx), px(fy)
+        draw.ellipse([(x - dot_r, y - dot_r), (x + dot_r, y + dot_r)], fill=YELLOW)
 
-    # Vertical center line
-    d2.line([top, bottom], fill=YELLOW, width=ilw)
-    # Left upper: (5,8) → (11,4)
-    d2.line([left_top, top], fill=YELLOW, width=ilw)
-    # Left lower: (5,14) → (11,18)
-    d2.line([left_bot, bottom], fill=YELLOW, width=ilw)
-    # Right upper: (17,8) → (11,4)
-    d2.line([right_top, top], fill=YELLOW, width=ilw)
-    # Right lower: (17,14) → (11,18)
-    d2.line([right_bot, bottom], fill=YELLOW, width=ilw)
-
-    # Subtle shine on top hexagon edge
-    sw = max(2, int(s * 0.004))
-    d2.line([hex_pts[0], hex_pts[1]], fill=SHINE, width=sw)
-    d2.line([hex_pts[5], hex_pts[0]], fill=SHINE, width=sw)
-
+    # Downsample 4x → display size
+    img = img.resize((size, size), Image.Resampling.LANCZOS)
     return img
 
 
-def write_ico(images: dict, path: str):
-    sizes = sorted(images.keys())
-    n = len(sizes)
+def write_ico(frames: dict, path: str):
+    sizes = sorted(frames.keys())
     png_bufs = []
     for sz in sizes:
         buf = io.BytesIO()
-        images[sz].save(buf, format="PNG", compress_level=6)
+        frames[sz].save(buf, format="PNG", compress_level=6)
         png_bufs.append(buf.getvalue())
-
-    header_sz = 6
-    dir_sz = 16 * n
-    offset = header_sz + dir_sz
-
+    offset = 6 + 16 * len(sizes)
     with open(path, "wb") as f:
-        f.write(struct.pack("<HHH", 0, 1, n))
+        f.write(struct.pack("<HHH", 0, 1, len(sizes)))
         for i, sz in enumerate(sizes):
             w = sz if sz < 256 else 0
             h = sz if sz < 256 else 0
-            data_size = len(png_bufs[i])
-            f.write(struct.pack("<BBBBHHII", w, h, 0, 0, 1, 32, data_size, offset))
-            offset += data_size
+            f.write(struct.pack("<BBBBHHII", w, h, 0, 0, 1, 32, len(png_bufs[i]), offset))
+            offset += len(png_bufs[i])
         for buf in png_bufs:
             f.write(buf)
 
@@ -116,18 +88,22 @@ def write_ico(images: dict, path: str):
 if __name__ == "__main__":
     out_dir = os.path.dirname(os.path.abspath(__file__))
 
-    master = draw_master(1024)
-
-    # Write icon.ico
-    sizes = [16, 24, 32, 48, 64, 128, 256]
-    images = {sz: master.resize((sz, sz), Image.LANCZOS).convert("RGBA") for sz in sizes}
-    ico_path = os.path.join(out_dir, "icon.ico")
-    write_ico(images, ico_path)
-    print(f"icon.ico -> {ico_path}")
-
-    # Write logo_hd.png (512x512)
-    hd = draw_master(512)
+    # logo_hd.png — black background, used by app.py for OS title bar icon
+    # and displayed in the title bar via PIL resize
+    hd = Image.new("RGBA", (512, 512), BLACK)
+    hd.alpha_composite(draw_hex_shield(512))
     hd_path = os.path.join(out_dir, "logo_hd.png")
-    hd.save(hd_path, format="PNG", compress_level=6)
+    hd.save(hd_path, "PNG")
     print(f"logo_hd.png -> {hd_path}")
-    print("Done. Same hexagon shape as original, high resolution.")
+
+    # icon.ico — black background
+    sizes  = [16, 32, 48, 64, 128, 256]
+    frames = {}
+    for sz in sizes:
+        bg = Image.new("RGBA", (sz, sz), BLACK)
+        bg.alpha_composite(draw_hex_shield(sz))
+        frames[sz] = bg
+    ico_path = os.path.join(out_dir, "icon.ico")
+    write_ico(frames, ico_path)
+    print(f"icon.ico    -> {ico_path}")
+    print("Done.")

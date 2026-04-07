@@ -59,6 +59,14 @@ FONT_BTN_LG   = ("Segoe UI", 11, "bold")
 FONT_BADGE    = ("Consolas", 9, "bold")
 FONT_TAB      = ("Segoe UI", 10, "bold")
 
+# ── Waveform region tints ─────────────────────────────────────────────────────
+TINT_PAUSE    = "#2a2200"   # dark yellow behind pause regions
+TINT_STUTTER  = "#1a0a10"   # dark red behind stutter regions
+TINT_UNCLEAR  = "#0e0b1f"   # dark purple behind unclear regions
+
+# ── Status bar separator ──────────────────────────────────────────────────────
+SEP_COLOR     = "#1a1a1a"
+
 # ── Dimensions ────────────────────────────────────────────────────────────────
 TITLEBAR_H    = 84
 TABBAR_H      = 40

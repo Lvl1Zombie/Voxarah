@@ -300,14 +300,23 @@ class WaveformCanvas(tk.Canvas):
                          fill=TEXT_GHOST, anchor="nw")
 
         if not self._samples:
-            # Draw flat placeholder bars
             for x in range(0, W, 3):
                 self.create_line(x, mid - 2, x, mid + 2,
                                  fill=EDGE_BRIGHT, width=1)
             return
 
-        # Build flag pixel ranges
         dur = len(self._samples)
+
+        # ── Colored region backgrounds (drawn BEFORE waveform bars) ──────────
+        _tint = {"pause": TINT_PAUSE, "stutter": TINT_STUTTER, "unclear": TINT_UNCLEAR}
+        for f in self._flags:
+            start_px = int(f["start_sample"] / dur * W) if "start_sample" in f else 0
+            end_px   = int(f["end_sample"]   / dur * W) if "end_sample"   in f else W
+            tint = _tint.get(f["type"], TINT_PAUSE)
+            self.create_rectangle(start_px, 0, end_px, H,
+                                  fill=tint, outline="")
+
+        # Build flag pixel color map (for waveform bar coloring)
         flag_px = {}
         for f in self._flags:
             start_px = int(f["start_sample"] / dur * W) if "start_sample" in f else 0
@@ -410,11 +419,11 @@ class DarkScrollbar(tk.Canvas):
 class FlagList(tk.Frame):
     """
     Pure-tk scrollable flag list. No ttk — fully controllable on Windows.
-    Columns: TYPE | TIMECODE | DESCRIPTION
+    Columns: TYPE | TIME | DESCRIPTION | SEVERITY
     """
-    COL_WIDTHS = [90, 90, 999]  # last col expands
-    ROW_H      = 28
-    HDR_H      = 26
+    ROW_H  = 28
+    HDR_H  = 26
+    SEV_W  = 80   # fixed width for severity column
 
     def __init__(self, parent, **kw):
         bg = kw.pop("bg", CARBON_1)
@@ -435,12 +444,15 @@ class FlagList(tk.Frame):
         tk.Label(hdr_inner, text="TYPE", font=FONT_MONO, fg=TEXT_GHOST,
                  bg=CARBON_3, anchor="w", padx=12, pady=4).grid(
                      row=0, column=0, sticky="w")
-        tk.Label(hdr_inner, text="TIMECODE", font=FONT_MONO, fg=TEXT_GHOST,
+        tk.Label(hdr_inner, text="TIME", font=FONT_MONO, fg=TEXT_GHOST,
                  bg=CARBON_3, anchor="w", padx=12, pady=4).grid(
                      row=0, column=1, sticky="w")
         tk.Label(hdr_inner, text="DESCRIPTION", font=FONT_MONO, fg=TEXT_GHOST,
                  bg=CARBON_3, anchor="w", padx=12, pady=4).grid(
                      row=0, column=2, sticky="ew")
+        tk.Label(hdr_inner, text="SEVERITY", font=FONT_MONO, fg=TEXT_GHOST,
+                 bg=CARBON_3, anchor="w", padx=12, pady=4).grid(
+                     row=0, column=3, sticky="e")
 
         # Scrollable body
         body_frame = tk.Frame(self, bg=bg)
@@ -475,7 +487,7 @@ class FlagList(tk.Frame):
             w.destroy()
         self._rows = []
 
-    def insert(self, flag_type, timecode, description):
+    def insert(self, flag_type, timecode, description, severity=1):
         idx    = len(self._rows)
         row_bg = CARBON_2 if idx % 2 == 0 else self._bg
 
@@ -486,10 +498,14 @@ class FlagList(tk.Frame):
         # Hover effect
         def on_enter(e, r=row, rb=row_bg):
             r.config(bg=YELLOW_SUBTLE)
-            for c in r.winfo_children(): c.config(bg=YELLOW_SUBTLE)
+            for c in r.winfo_children():
+                try: c.config(bg=YELLOW_SUBTLE)
+                except Exception: pass
         def on_leave(e, r=row, rb=row_bg):
             r.config(bg=rb)
-            for c in r.winfo_children(): c.config(bg=rb)
+            for c in r.winfo_children():
+                try: c.config(bg=rb)
+                except Exception: pass
         row.bind("<Enter>", on_enter)
         row.bind("<Leave>", on_leave)
 
@@ -516,6 +532,24 @@ class FlagList(tk.Frame):
         desc_lbl.pack(side="left", fill="x", expand=True)
         desc_lbl.bind("<Enter>", on_enter)
         desc_lbl.bind("<Leave>", on_leave)
+
+        # Severity mini bar chart (3 bars, 4px wide, 10px tall, 2px gap)
+        sev_canvas = tk.Canvas(row, width=self.SEV_W, height=self.ROW_H,
+                               bg=row_bg, highlightthickness=0)
+        sev_canvas.pack(side="right", padx=(0, 12))
+        sev_canvas.bind("<Enter>", on_enter)
+        sev_canvas.bind("<Leave>", on_leave)
+
+        bar_w, bar_h, gap = 4, 10, 3
+        total_w = 3 * bar_w + 2 * gap
+        start_x = (self.SEV_W - total_w) // 2
+        y_top   = (self.ROW_H - bar_h) // 2
+        for b in range(3):
+            x = start_x + b * (bar_w + gap)
+            filled = (b + 1) <= severity
+            sev_canvas.create_rectangle(
+                x, y_top, x + bar_w, y_top + bar_h,
+                fill=fg_type if filled else "#1a1a1a", outline="")
 
         # Bottom hairline
         tk.Frame(self._inner, bg=EDGE, height=1).pack(fill="x")

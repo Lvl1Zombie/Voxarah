@@ -23,10 +23,11 @@ def build():
         "--windowed",
         f"--name={APP_NAME}",
 
-        # Source packages
+        # Source packages + assets
         "--add-data=coaching;coaching",
         "--add-data=core;core",
         "--add-data=ui;ui",
+        "--add-data=assets;assets",
 
         # pyttsx3 needs its driver sub-package collected explicitly
         "--hidden-import=pyttsx3.drivers",

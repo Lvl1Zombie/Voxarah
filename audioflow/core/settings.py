@@ -31,6 +31,7 @@ DEFAULTS = {
     "theme":                   "dark",
     "log_verbosity":           "normal",  # "quiet" | "normal" | "verbose"
     "auto_analyze_on_load":    False,
+    "ui_text_color":           "#e0e0e0",  # primary text color
 
     # ── Update Settings ────────────────────────────────────────────
     "auto_update_check":       True,

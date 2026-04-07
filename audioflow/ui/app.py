@@ -109,7 +109,7 @@ class AudioFlowApp(tk.Tk):
         wm = tk.Frame(bar, bg=BLACK)
         wm.pack(side="left", padx=(14, 0))
 
-        logo = tk.Canvas(wm, width=68, height=68, bg=BLACK, highlightthickness=0)
+        logo = tk.Canvas(wm, width=40, height=40, bg=BLACK, highlightthickness=0)
         logo.pack(side="left", padx=(0, 8))
         self._draw_logo(logo)
 
@@ -119,7 +119,7 @@ class AudioFlowApp(tk.Tk):
 
         tk.Frame(bar, bg=EDGE, width=1).pack(side="left", fill="y", padx=14, pady=8)
         tk.Label(bar, text="VOICE PRODUCTION SUITE",
-                 font=FONT_MONO, fg=TEXT_GHOST, bg=BLACK).pack(side="left")
+                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left")
 
         # Right side
         right = tk.Frame(bar, bg=BLACK)
@@ -133,44 +133,19 @@ class AudioFlowApp(tk.Tk):
 
         self._conn_var = tk.StringVar(value="AUDACITY  OFFLINE")
         tk.Label(right, textvariable=self._conn_var,
-                 font=FONT_MONO, fg=TEXT_GHOST, bg=BLACK).pack(side="left")
+                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left")
 
     def _draw_logo(self, canvas):
         try:
             from PIL import Image, ImageTk
-
-            # Logical display size (px) — large enough to look HD
-            logical = 68
-
-            # Physical pixels = logical × tk DPI scale so the image is never
-            # stretched by Tkinter (stretching = pixelation).
-            try:
-                tk_scale = float(canvas.tk.call('tk', 'scaling'))
-            except Exception:
-                tk_scale = 1.333
-            phys = max(logical, round(logical * tk_scale))
-
-            # Load the pre-rendered 512px HD PNG from assets
-            assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
-                                      "..", "assets")
-            logo_path  = os.path.join(assets_dir, "logo_hd.png")
-            img = Image.open(logo_path).convert("RGBA")
-            img = img.resize((phys, phys), Image.Resampling.LANCZOS)
-
+            assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets")
+            img = Image.open(os.path.join(assets_dir, "logo_hd.png")).convert("RGBA")
+            img = img.resize((40, 40), Image.Resampling.LANCZOS)
             photo = ImageTk.PhotoImage(img)
-            canvas._logo_photo = photo          # prevent GC
-            canvas.configure(width=logical, height=logical)
+            canvas._logo_photo = photo  # prevent GC
             canvas.create_image(0, 0, anchor="nw", image=photo)
-
         except Exception:
-            # Fallback: plain canvas drawing
-            pts  = [(11,1),(21,6),(21,16),(11,21),(1,16),(1,6)]
-            flat = [c for pt in pts for c in pt]
-            canvas.create_polygon(flat, outline=YELLOW, fill="", width=1)
-            canvas.create_line(11, 4, 11, 18, fill=YELLOW, width=1)
-            for x in (5, 17):
-                canvas.create_line(x, 8,  11, 4,  fill=YELLOW, width=1)
-                canvas.create_line(x, 14, 11, 18, fill=YELLOW, width=1)
+            pass
 
     def _update_conn_indicator(self, connected):
         color = YELLOW if connected else EDGE_BRIGHT
@@ -204,6 +179,7 @@ class AudioFlowApp(tk.Tk):
 
         self._tab_frames  = {}
         self._tab_btns    = {}
+        self._tab_unders  = {}   # yellow underline frames
         self._active_tab  = None
 
         tabs = [
@@ -214,11 +190,18 @@ class AudioFlowApp(tk.Tk):
         ]
 
         for key, label in tabs:
-            btn = tk.Label(bar, text=label, font=FONT_TAB,
-                           fg=TEXT_GHOST, bg=BLACK, cursor="hand2", pady=0)
-            btn.pack(side="left")
+            wrap = tk.Frame(bar, bg=BLACK)
+            wrap.pack(side="left")
+
+            btn = tk.Label(wrap, text=label, font=FONT_TAB,
+                           fg=TEXT_DIM, bg=BLACK, cursor="hand2", pady=6)
+            btn.pack(side="top")
             btn.bind("<Button-1>", lambda e, k=key: self._switch_tab(k))
             self._tab_btns[key] = btn
+
+            under = tk.Frame(wrap, bg=BLACK, height=2)
+            under.pack(fill="x", side="bottom")
+            self._tab_unders[key] = under
 
         tk.Frame(bar, bg=EDGE, height=1).pack(side="bottom", fill="x")
 
@@ -229,8 +212,12 @@ class AudioFlowApp(tk.Tk):
         for k, btn in self._tab_btns.items():
             if k == key:
                 btn.config(fg=YELLOW, bg=CARBON_2)
+                self._tab_unders[k].config(bg=YELLOW)
+                btn.master.config(bg=CARBON_2)
             else:
-                btn.config(fg=TEXT_GHOST, bg=BLACK)
+                btn.config(fg=TEXT_DIM, bg=BLACK)
+                self._tab_unders[k].config(bg=BLACK)
+                btn.master.config(bg=BLACK)
         for k, frame in self._tab_frames.items():
             if k == key:
                 frame.pack(fill="both", expand=True)
@@ -267,13 +254,28 @@ class AudioFlowApp(tk.Tk):
         bar.pack(fill="x", side="bottom")
         bar.pack_propagate(False)
 
+        def sep():
+            tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="left", fill="y", pady=8)
+
         self._status_var = tk.StringVar(value="READY")
         tk.Label(bar, textvariable=self._status_var,
-                 font=FONT_MONO, fg=TEXT_GHOST, bg=BLACK).pack(side="left", padx=12)
+                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left", padx=12)
 
-        # Ollama status indicator
+        sep()
+        self._format_var = tk.StringVar(value="")
+        tk.Label(bar, textvariable=self._format_var,
+                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left", padx=12)
+
+        # Right side — build right-to-left
+        SecondaryButton(bar, "CHECK UPDATES", command=lambda: self._check_for_updates(forced=True)).pack(side="right", padx=(0, 12))
+
+        tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=8)
+        tk.Label(bar, text=f"VOXARAH  v{APP_VERSION}",
+                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="right", padx=12)
+
+        tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=8)
         ollama_frame = tk.Frame(bar, bg=BLACK)
-        ollama_frame.pack(side="right", padx=(0, 12))
+        ollama_frame.pack(side="right", padx=12)
         self._ollama_canvas = tk.Canvas(ollama_frame, width=8, height=8,
                                          bg=BLACK, highlightthickness=0)
         self._ollama_canvas.pack(side="left", padx=(0, 4))
@@ -281,14 +283,12 @@ class AudioFlowApp(tk.Tk):
                                                             fill=EDGE_BRIGHT, outline="")
         self._ollama_var = tk.StringVar(value="AI  OFFLINE")
         tk.Label(ollama_frame, textvariable=self._ollama_var,
-                 font=FONT_MONO, fg=TEXT_GHOST, bg=BLACK).pack(side="left")
+                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left")
 
-        self._format_var = tk.StringVar(value="")
-        tk.Label(bar, textvariable=self._format_var,
-                 font=FONT_MONO, fg=TEXT_GHOST, bg=BLACK).pack(side="right", padx=12)
-        SecondaryButton(bar, "CHECK UPDATES", command=lambda: self._check_for_updates(forced=True)).pack(side="right", padx=(0,12))
-        tk.Label(bar, text=f"VOXARAH  v{APP_VERSION}",
-                 font=FONT_MONO, fg=TEXT_GHOST, bg=BLACK).pack(side="right", padx=12)
+        tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=8)
+        self._ffmpeg_var = tk.StringVar(value="FFMPEG —")
+        tk.Label(bar, textvariable=self._ffmpeg_var,
+                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="right", padx=12)
 
     def _set_status(self, msg):
         self._status_var.set(msg.upper())
@@ -322,19 +322,30 @@ class AudioFlowApp(tk.Tk):
 
         def lsec(parent, title):
             f = tk.Frame(parent, bg=SURFACE)
-            f.pack(fill="x", padx=SECTION_PAD, pady=(12, 0))
-            SectionLabel(f, title, bg=SURFACE).pack(fill="x", pady=(0, 8))
+            f.pack(fill="x", padx=SECTION_PAD, pady=(8, 0))
+            SectionLabel(f, title, bg=SURFACE).pack(fill="x", pady=(0, 6))
             return f
 
-        # File
+        # ── File info panel ──
         s1 = lsec(left, "Source File")
+        info_box = tk.Frame(s1, bg=CARBON_2,
+                            highlightthickness=1, highlightbackground=EDGE_BRIGHT)
+        info_box.pack(fill="x", pady=(0, 6))
+
         self._filepath_var = tk.StringVar(value="No file loaded")
-        tk.Label(s1, textvariable=self._filepath_var, font=FONT_MONO_MED,
-                 fg=YELLOW, bg=SURFACE, anchor="w",
-                 wraplength=208, justify="left").pack(fill="x", pady=(0,6))
+        tk.Label(info_box, textvariable=self._filepath_var,
+                 font=("Consolas", 10), fg=YELLOW, bg=CARBON_2,
+                 anchor="w", padx=8, pady=4,
+                 wraplength=200, justify="left").pack(fill="x")
+
+        self._fileinfo_var = tk.StringVar(value="")
+        tk.Label(info_box, textvariable=self._fileinfo_var,
+                 font=FONT_MONO, fg=TEXT_GHOST, bg=CARBON_2,
+                 anchor="w", padx=8).pack(fill="x", pady=(0, 4))
+
         PrimaryButton(s1, "OPEN AUDIO FILE", command=self._open_file).pack(fill="x")
 
-        tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=10)
+        tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=6)
 
         # Sliders
         s2 = lsec(left, "Detection")
@@ -347,7 +358,7 @@ class AudioFlowApp(tk.Tk):
             sl = LamboSlider(s2, label, key, lo, hi, res,
                              self.settings.get(key), fmt,
                              lambda k, v: self.settings.set(k, v), bg=SURFACE)
-            sl.pack(fill="x", pady=(0, 10))
+            sl.pack(fill="x", pady=(0, 8))
             self._sliders[key] = sl
 
         tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=4)
@@ -358,14 +369,13 @@ class AudioFlowApp(tk.Tk):
         for label, key in [("Detect Stutters", "detect_stutters"),
                             ("Flag Unclear",    "detect_unclear"),
                             ("Trim Pauses",     "detect_stutters")]:
-            real_key = key
-            tog = LamboToggle(s3, label, real_key,
-                              value=bool(self.settings.get(real_key)),
+            tog = LamboToggle(s3, label, key,
+                              value=bool(self.settings.get(key)),
                               on_change=lambda k, v: self.settings.set(k, v),
                               bg=SURFACE)
-            tog.pack(fill="x", pady=3)
+            tog.pack(fill="x", pady=2)
 
-        tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=8)
+        tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=6)
 
         # Buttons
         s4 = tk.Frame(left, bg=SURFACE)
@@ -378,7 +388,7 @@ class AudioFlowApp(tk.Tk):
         self._apply_btn.pack(fill="x")
         self._apply_btn.config(state="disabled", fg=TEXT_GHOST)
 
-        tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=8)
+        tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=6)
 
         # Progress
         s5 = tk.Frame(left, bg=SURFACE)
@@ -386,17 +396,11 @@ class AudioFlowApp(tk.Tk):
         self._progress = LamboProgress(s5, bg=SURFACE)
         self._progress.pack(fill="x")
 
-        # Export (bottom of left panel)
-        exp_row = tk.Frame(left, bg=SURFACE)
-        exp_row.pack(fill="x", padx=SECTION_PAD, side="bottom", pady=10)
-        GhostButton(exp_row, "Export WAV",    self._export_wav,    bg=SURFACE).pack(side="left")
-        GhostButton(exp_row, "Export Labels", self._export_labels, bg=SURFACE).pack(side="left", padx=(6,0))
-
         # ── Right panel ──
         right = tk.Frame(p, bg=CARBON_1)
         right.pack(side="left", fill="both", expand=True)
 
-        # Stats row — Canvas-drawn for guaranteed font rendering on Windows
+        # Stats row
         self._stat_defs = [
             ("pause_count",   "PAUSES TRIMMED", True),
             ("stutter_count", "STUTTERS",       False),
@@ -412,7 +416,28 @@ class AudioFlowApp(tk.Tk):
         self._stats_canvas.after(200, self._draw_stat_cards)
         tk.Frame(right, bg=YELLOW, height=1).pack(fill="x")
 
-        # Waveform — fixed height, always visible
+        # ── Timeline bar ──
+        tl = tk.Frame(right, bg=CARBON_1, height=18)
+        tl.pack(fill="x")
+        tl.pack_propagate(False)
+
+        self._tl_start_var = tk.StringVar(value="0:00")
+        tk.Label(tl, textvariable=self._tl_start_var,
+                 font=("Consolas", 8), fg=TEXT_GHOST, bg=CARBON_1,
+                 padx=6).pack(side="left")
+
+        self._tl_canvas = tk.Canvas(tl, bg=CARBON_1, height=18,
+                                     highlightthickness=0, bd=0)
+        self._tl_canvas.pack(side="left", fill="both", expand=True)
+        self._tl_canvas.bind("<Configure>", lambda e: self._draw_timeline())
+        self._tl_canvas.after(300, self._draw_timeline)
+
+        self._tl_end_var = tk.StringVar(value="")
+        tk.Label(tl, textvariable=self._tl_end_var,
+                 font=("Consolas", 8), fg=TEXT_GHOST, bg=CARBON_1,
+                 padx=6).pack(side="right")
+
+        # Waveform
         wf_wrap = tk.Frame(right, bg=CARBON_2, height=WAVEFORM_H)
         wf_wrap.pack(fill="x")
         wf_wrap.pack_propagate(False)
@@ -420,6 +445,25 @@ class AudioFlowApp(tk.Tk):
         self._waveform.pack(fill="both", expand=True)
         self._waveform.after(200, self._waveform._redraw)
         tk.Frame(right, bg=EDGE, height=1).pack(fill="x")
+
+        # ── Issues header bar ──
+        issues_bar = tk.Frame(right, bg=CARBON_1, height=28)
+        issues_bar.pack(fill="x")
+        issues_bar.pack_propagate(False)
+
+        tk.Label(issues_bar, text="ISSUES", font=FONT_MONO,
+                 fg=TEXT_GHOST, bg=CARBON_1, padx=10).pack(side="left")
+
+        self._issues_badge_var = tk.StringVar(value="0")
+        self._issues_badge = tk.Label(issues_bar, textvariable=self._issues_badge_var,
+                                       font=FONT_BADGE, fg=BLACK, bg=YELLOW,
+                                       padx=8, pady=2)
+        self._issues_badge.pack(side="left")
+
+        tk.Frame(issues_bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=4)
+        GhostButton(issues_bar, "EXPORT WAV",    self._export_wav,    bg=CARBON_1).pack(side="right", padx=(0, 4))
+        tk.Frame(issues_bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=4)
+        GhostButton(issues_bar, "EXPORT LABELS", self._export_labels, bg=CARBON_1).pack(side="right", padx=(0, 4))
 
         # Flag list
         fc = tk.Frame(right, bg=CARBON_1)
@@ -450,9 +494,14 @@ class AudioFlowApp(tk.Tk):
                 c.create_rectangle(x, H - 2, x + card_w, H,
                                    fill=YELLOW, outline="")
 
-            # Big number — Consolas 26 bold, guaranteed to render
+            # Big number — green when zero on stutter/unclear, yellow on first card
             val = self._stat_values.get(key, "—")
-            fg = YELLOW if accent else "#e0e0e0"
+            if accent:
+                fg = YELLOW
+            elif key in ("stutter_count", "unclear_count") and str(val) == "0":
+                fg = GREEN_OK
+            else:
+                fg = TEXT
             c.create_text(x + card_w // 2, 32,
                           text=str(val),
                           font=("Consolas", 26, "bold"),
@@ -466,6 +515,30 @@ class AudioFlowApp(tk.Tk):
 
     # ── Editor logic ──────────────────────────────────────────────
 
+    def _draw_timeline(self):
+        c = self._tl_canvas
+        c.delete("all")
+        W = c.winfo_width()
+        H = 18
+        if W < 4:
+            return
+        # Track background
+        track_y = H // 2
+        c.create_rectangle(0, track_y - 1, W, track_y + 1,
+                            fill=CARBON_3, outline="")
+        # Yellow fill up to playhead (33% default)
+        playhead = getattr(self, "_playhead_frac", 0.33)
+        fill_w = int(W * playhead)
+        if fill_w > 0:
+            c.create_rectangle(0, track_y - 1, fill_w, track_y + 1,
+                                fill=YELLOW, outline="")
+        # Diamond playhead
+        px = fill_w
+        d = 4
+        c.create_polygon(px, track_y - d, px + d, track_y,
+                         px, track_y + d, px - d, track_y,
+                         fill=YELLOW, outline="")
+
     def _open_file(self):
         path = filedialog.askopenfilename(
             title="Open Audio File",
@@ -473,15 +546,21 @@ class AudioFlowApp(tk.Tk):
         if not path:
             return
         self._wav_path = path
-        self._filepath_var.set(os.path.basename(path))
-        self._set_status(f"Loaded: {os.path.basename(path)}")
+        fname = os.path.basename(path)
+        self._filepath_var.set(fname)
+        self._set_status(f"Loaded: {fname}")
         self.results = None
         self._apply_btn.config(state="disabled")
         self._clear_results()
         try:
-            kb = os.path.getsize(path) / 1024
+            kb   = os.path.getsize(path) / 1024
             size = f"{kb/1024:.1f}MB" if kb > 1024 else f"{int(kb)}KB"
-            self._format_var.set(os.path.splitext(path)[1].upper().lstrip(".") + f"  {size}")
+            ext  = os.path.splitext(path)[1].upper().lstrip(".")
+            self._fileinfo_var.set(f"{ext}  {size}")
+            self._format_var.set(f"{ext}  {size}")
+            # Check ffmpeg availability
+            ffmpeg = self._find_ffmpeg()
+            self._ffmpeg_var.set("FFMPEG OK" if ffmpeg else "FFMPEG —")
         except Exception:
             pass
 
@@ -491,6 +570,10 @@ class AudioFlowApp(tk.Tk):
         self._draw_stat_cards()
         self._flag_tree.delete_all()
         self._waveform.load([], [])
+        self._issues_badge_var.set("0")
+        self._tl_end_var.set("")
+        self._playhead_frac = 0.33
+        self._draw_timeline()
 
     def _run_analysis(self):
         if not self._wav_path:
@@ -685,20 +768,42 @@ class AudioFlowApp(tk.Tk):
         self._draw_stat_cards()
         self._flag_tree.delete_all()
 
-        sr = self.results["sample_rate"]
+        sr       = self.results["sample_rate"]
+        n_samples = len(self.results["samples"])
+        duration  = n_samples / sr if sr else 0
+
+        # Update timeline duration label and redraw
+        self._tl_end_var.set(fmt_time(duration))
+        self._fileinfo_var.set(
+            self._fileinfo_var.get().split("  ")[0] + f"  {fmt_time(duration)}"
+            if self._fileinfo_var.get() else fmt_time(duration))
+        self._draw_timeline()
+
         flag_samples = []
         for edit in self.results["all_edits"]:
-            self._flag_tree.insert(
-                edit["type"], fmt_time(edit["start"]), edit["desc"])
+            # Compute severity
+            ftype = edit["type"]
+            if ftype == "pause":
+                dur = edit["end"] - edit["start"]
+                sev = 3 if dur > 2.0 else 2 if dur > 1.5 else 1
+            else:
+                sev = 1
+            self._flag_tree.insert(edit["type"], fmt_time(edit["start"]),
+                                   edit["desc"], severity=sev)
             flag_samples.append({
                 "type":         edit["type"],
                 "start_sample": int(edit["start"] * sr),
                 "end_sample":   int(edit["end"]   * sr),
             })
 
+        # Update issues badge
+        n = len(self.results["all_edits"])
+        self._issues_badge_var.set(str(n))
+
         self._waveform.load(self.results["samples"], flag_samples)
         self._progress.set(1.0, "Analysis complete")
-        self._set_status(f"Done — {len(self.results['all_edits'])} issues found")
+        n_issues = len(self.results["all_edits"])
+        self._set_status(f"Done — {n_issues} issues found")
         self._apply_btn.config(state="normal", fg=YELLOW)
 
         if hasattr(self, "_coaching_manager"):
@@ -824,11 +929,12 @@ class AudioFlowApp(tk.Tk):
         right = tk.Frame(p, bg=CARBON_1)
         right.pack(side="left", fill="both", expand=True)
 
-        hdr = tk.Frame(right, bg=CARBON_2, height=28)
+        hdr = tk.Frame(right, bg=CARBON_1, height=28)
         hdr.pack(fill="x")
         hdr.pack_propagate(False)
         tk.Label(hdr, text="ACTIVITY LOG", font=FONT_MONO,
-                 fg=TEXT_GHOST, bg=CARBON_2).pack(side="left", padx=14, pady=6)
+                 fg=TEXT_GHOST, bg=CARBON_1, padx=14).pack(side="left", fill="y")
+        tk.Frame(hdr, bg=YELLOW, height=1).pack(side="bottom", fill="x")
 
         self._log_area = make_log_text(right, height=30)
         self._log_area.pack(fill="both", expand=True)
@@ -948,6 +1054,42 @@ class AudioFlowApp(tk.Tk):
                 e.pack(side="right", padx=12, pady=6)
                 e.bind("<FocusOut>", lambda ev, k=key, v=var: self.settings.set(k, v.get().strip()))
 
+            elif wtype == "color":
+                current = self.settings.get(key) or "#e0e0e0"
+                var = tk.StringVar(value=current)
+
+                swatch = tk.Frame(f, width=22, height=22, bg=current,
+                                  highlightthickness=1, highlightbackground=EDGE_BRIGHT,
+                                  cursor="hand2")
+                swatch.pack(side="right", padx=(6, 12), pady=8)
+
+                hex_entry = tk.Entry(f, textvariable=var, font=FONT_MONO,
+                                     width=10, bg=CARBON_4, fg=YELLOW,
+                                     insertbackground=YELLOW, relief="flat",
+                                     highlightbackground=EDGE, highlightthickness=1)
+                hex_entry.pack(side="right", padx=(0, 4), pady=8)
+
+                def _pick_color(k=key, v=var, sw=swatch):
+                    from tkinter import colorchooser
+                    result = colorchooser.askcolor(color=v.get(), title="Pick Text Color")
+                    if result and result[1]:
+                        v.set(result[1])
+                        sw.config(bg=result[1])
+                        self.settings.set(k, result[1])
+
+                def _hex_changed(ev, k=key, v=var, sw=swatch):
+                    val = v.get().strip()
+                    if len(val) == 7 and val.startswith("#"):
+                        try:
+                            sw.config(bg=val)
+                            self.settings.set(k, val)
+                        except Exception:
+                            pass
+
+                swatch.bind("<Button-1>", lambda e, fn=_pick_color: fn())
+                hex_entry.bind("<FocusOut>", _hex_changed)
+                hex_entry.bind("<Return>",   _hex_changed)
+
         from coaching.profiles import get_all_profiles
 
         section("Analysis")
@@ -973,6 +1115,7 @@ class AudioFlowApp(tk.Tk):
         row("Log verbosity",                 "log_verbosity",         "choice",
             choices=["quiet", "normal", "verbose"])
         row("Auto-analyze on load",          "auto_analyze_on_load",  "bool")
+        row("Primary Text Color",            "ui_text_color",         "color")
 
         section("Updates")
         row("Auto-check for updates",       "auto_update_check",     "bool")
@@ -987,8 +1130,24 @@ class AudioFlowApp(tk.Tk):
 
     def _save_settings(self):
         self.settings.save()
+        self._apply_text_color()
         self._set_status("Settings saved")
         messagebox.showinfo("Saved", "Settings saved.")
+
+    def _apply_text_color(self):
+        """Apply ui_text_color to all TEXT-colored labels app-wide."""
+        color = self.settings.get("ui_text_color") or TEXT
+        self._propagate_text_color(self, color)
+
+    def _propagate_text_color(self, widget, color):
+        try:
+            # Only recolor labels/buttons that were originally TEXT-colored
+            if widget.cget("fg") in ("#e0e0e0", TEXT):
+                widget.config(fg=color)
+        except Exception:
+            pass
+        for child in widget.winfo_children():
+            self._propagate_text_color(child, color)
 
     def _reset_settings(self):
         if messagebox.askyesno("Reset", "Reset all settings to defaults?"):
