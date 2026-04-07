@@ -16,9 +16,11 @@ YELLOW = (245, 197, 24,  255)
 SHINE  = (255, 230, 120, 180)
 
 ORIG = 22  # original canvas size
+PAD  = 0.09  # 9% padding each side so hexagon doesn't clip at small icon sizes
 
 def scale(coord, s):
-    return int(coord / ORIG * s)
+    usable = s * (1 - 2 * PAD)
+    return int(PAD * s + coord / ORIG * usable)
 
 def draw_master(s: int = 1024) -> Image.Image:
     img = Image.new("RGBA", (s, s), BLACK)
