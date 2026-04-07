@@ -3,17 +3,21 @@ Voxarah — Main Application
 Full Lamborghini-inspired UI. Matte black + yellow. No softness.
 """
 
+import sys
 import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
 import threading
 import os
 import tempfile
+import shutil
+import subprocess
 
 from core.settings        import SettingsManager
 from core.analyzer        import AudioAnalyzer, build_cleaned_wav, build_label_file
 from core.audacity_bridge import AudacityBridge
 from core.ai_coach        import AICoach
+from core.updater         import Updater
 from core.voice           import VoiceEngine
 from ui.design            import *
 from ui.components        import (
@@ -23,6 +27,8 @@ from ui.components        import (
     make_notebook, make_log_text, log_append, LamboProgress, PanelSection
 )
 from ui.coaching_panel    import CoachingTabManager
+
+APP_VERSION = "2.0"
 
 
 def fmt_time(sec):
@@ -36,14 +42,26 @@ class AudioFlowApp(tk.Tk):
     def __init__(self):
         super().__init__()
         self.title("Voxarah")
-        self.geometry("1060x680")
-        self.minsize(900, 600)
         self.configure(bg=BLACK)
+
+        # Sync Tkinter's internal scaling to the actual monitor DPI so that
+        # fonts and widgets render at native physical-pixel resolution instead
+        # of being stretched/blurred by Windows' bitmap upscaling.
+        self.update_idletasks()
+        try:
+            dpi = self.winfo_fpixels('1i')          # physical pixels per inch
+            self.tk.call('tk', 'scaling', dpi / 72.0)
+        except Exception:
+            pass
+
+        self.geometry("1160x760")
+        self.minsize(960, 640)
 
         self.settings  = SettingsManager()
         self.bridge    = AudacityBridge(log_callback=self._log)
         self.ai_coach  = AICoach()
         self.voice     = VoiceEngine()
+        self.updater   = Updater(current_version=APP_VERSION)
         self.results   = None
         self._wav_path = None
 
@@ -52,6 +70,17 @@ class AudioFlowApp(tk.Tk):
         self._build_body()
         self._build_status_bar()
 
+        # Set window icon (title bar + taskbar)
+        try:
+            from PIL import Image, ImageTk
+            _assets = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "assets")
+            _ico_img = Image.open(os.path.join(_assets, "logo_hd.png")).convert("RGBA")
+            _ico_photo = ImageTk.PhotoImage(_ico_img.resize((256, 256), Image.Resampling.LANCZOS))
+            self.iconphoto(True, _ico_photo)
+            self._icon_ref = _ico_photo  # prevent GC
+        except Exception:
+            pass
+
         # Force dark title bar on Windows 10/11
         self.after(50, self._set_dark_titlebar)
 
@@ -59,6 +88,7 @@ class AudioFlowApp(tk.Tk):
             self.after(900, self._try_connect_silent)
 
         self.after(1200, self._check_ollama_status)
+        self.after(1800, self._check_for_updates)
 
     # ══════════════════════════════════════════════════════════════
     # TITLEBAR
@@ -79,13 +109,13 @@ class AudioFlowApp(tk.Tk):
         wm = tk.Frame(bar, bg=BLACK)
         wm.pack(side="left", padx=(14, 0))
 
-        logo = tk.Canvas(wm, width=22, height=22, bg=BLACK, highlightthickness=0)
+        logo = tk.Canvas(wm, width=68, height=68, bg=BLACK, highlightthickness=0)
         logo.pack(side="left", padx=(0, 8))
         self._draw_logo(logo)
 
-        tk.Label(wm, text="VOX",  font=("Segoe UI", 13, "bold"), fg=TEXT,   bg=BLACK, padx=0, bd=0).pack(side="left", padx=0)
-        tk.Label(wm, text="A",    font=("Segoe UI", 13, "bold"), fg=YELLOW, bg=BLACK, padx=0, bd=0).pack(side="left", padx=0)
-        tk.Label(wm, text="RAH",  font=("Segoe UI", 13, "bold"), fg=TEXT,   bg=BLACK, padx=0, bd=0).pack(side="left", padx=0)
+        tk.Label(wm, text="VOX",  font=("Segoe UI", 22, "bold"), fg=TEXT,   bg=BLACK, padx=0, bd=0).pack(side="left", padx=0)
+        tk.Label(wm, text="A",    font=("Segoe UI", 22, "bold"), fg=YELLOW, bg=BLACK, padx=0, bd=0).pack(side="left", padx=0)
+        tk.Label(wm, text="RAH",  font=("Segoe UI", 22, "bold"), fg=TEXT,   bg=BLACK, padx=0, bd=0).pack(side="left", padx=0)
 
         tk.Frame(bar, bg=EDGE, width=1).pack(side="left", fill="y", padx=14, pady=8)
         tk.Label(bar, text="VOICE PRODUCTION SUITE",
@@ -106,13 +136,41 @@ class AudioFlowApp(tk.Tk):
                  font=FONT_MONO, fg=TEXT_GHOST, bg=BLACK).pack(side="left")
 
     def _draw_logo(self, canvas):
-        pts = [(11,1),(21,6),(21,16),(11,21),(1,16),(1,6)]
-        flat = [c for pt in pts for c in pt]
-        canvas.create_polygon(flat, outline=YELLOW, fill="", width=1)
-        canvas.create_line(11, 4, 11, 18, fill=YELLOW, width=1)
-        for x in (5, 17):
-            canvas.create_line(x, 8,  11, 4,  fill=YELLOW, width=1)
-            canvas.create_line(x, 14, 11, 18, fill=YELLOW, width=1)
+        try:
+            from PIL import Image, ImageTk
+
+            # Logical display size (px) — large enough to look HD
+            logical = 68
+
+            # Physical pixels = logical × tk DPI scale so the image is never
+            # stretched by Tkinter (stretching = pixelation).
+            try:
+                tk_scale = float(canvas.tk.call('tk', 'scaling'))
+            except Exception:
+                tk_scale = 1.333
+            phys = max(logical, round(logical * tk_scale))
+
+            # Load the pre-rendered 512px HD PNG from assets
+            assets_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                                      "..", "assets")
+            logo_path  = os.path.join(assets_dir, "logo_hd.png")
+            img = Image.open(logo_path).convert("RGBA")
+            img = img.resize((phys, phys), Image.Resampling.LANCZOS)
+
+            photo = ImageTk.PhotoImage(img)
+            canvas._logo_photo = photo          # prevent GC
+            canvas.configure(width=logical, height=logical)
+            canvas.create_image(0, 0, anchor="nw", image=photo)
+
+        except Exception:
+            # Fallback: plain canvas drawing
+            pts  = [(11,1),(21,6),(21,16),(11,21),(1,16),(1,6)]
+            flat = [c for pt in pts for c in pt]
+            canvas.create_polygon(flat, outline=YELLOW, fill="", width=1)
+            canvas.create_line(11, 4, 11, 18, fill=YELLOW, width=1)
+            for x in (5, 17):
+                canvas.create_line(x, 8,  11, 4,  fill=YELLOW, width=1)
+                canvas.create_line(x, 14, 11, 18, fill=YELLOW, width=1)
 
     def _update_conn_indicator(self, connected):
         color = YELLOW if connected else EDGE_BRIGHT
@@ -228,7 +286,8 @@ class AudioFlowApp(tk.Tk):
         self._format_var = tk.StringVar(value="")
         tk.Label(bar, textvariable=self._format_var,
                  font=FONT_MONO, fg=TEXT_GHOST, bg=BLACK).pack(side="right", padx=12)
-        tk.Label(bar, text="VOXARAH  v2.0",
+        SecondaryButton(bar, "CHECK UPDATES", command=lambda: self._check_for_updates(forced=True)).pack(side="right", padx=(0,12))
+        tk.Label(bar, text=f"VOXARAH  v{APP_VERSION}",
                  font=FONT_MONO, fg=TEXT_GHOST, bg=BLACK).pack(side="right", padx=12)
 
     def _set_status(self, msg):
@@ -456,18 +515,164 @@ class AudioFlowApp(tk.Tk):
 
         threading.Thread(target=task, daemon=True).start()
 
+    def _find_ffmpeg(self):
+        project_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        candidates = [
+            shutil.which("ffmpeg"),
+            os.path.join(project_root, "samples", "ffmpeg.exe"),
+            os.path.join(project_root, "ffmpeg", "ffmpeg.exe"),
+        ]
+        for candidate in candidates:
+            if candidate and os.path.exists(candidate):
+                return candidate
+        return None
+
     def _ensure_wav(self, path):
         if path.lower().endswith(".wav"):
             return path
+
+        ffmpeg = self._find_ffmpeg()
+        if not ffmpeg:
+            messagebox.showerror(
+                "FFmpeg Not Found",
+                "FFmpeg is required to convert non-WAV audio files.\n"
+                "Please install FFmpeg or place ffmpeg.exe in the project samples/ folder."
+            )
+            return None
+
         out = tempfile.mktemp(suffix=".wav")
-        if os.system(f'ffmpeg -y -i "{path}" "{out}" -loglevel quiet') == 0:
-            return out
-        self._log("ffmpeg not found — WAV files work without it.")
-        return path
+        try:
+            result = subprocess.run(
+                [ffmpeg, "-y", "-i", path, out, "-loglevel", "quiet"],
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if result.returncode == 0 and os.path.exists(out):
+                return out
+            self._log(f"FFmpeg conversion failed: {result.stderr.strip() or result.stdout.strip()}")
+            messagebox.showerror(
+                "FFmpeg Conversion Failed",
+                "Failed to convert the selected audio file to WAV."
+            )
+            return None
+        except Exception as e:
+            self._log(f"FFmpeg conversion error: {e}")
+            messagebox.showerror("FFmpeg Error", str(e))
+            return None
 
     def _on_progress(self, fraction, msg):
         self.after(0, lambda: self._progress.set(fraction, msg))
         self.after(0, lambda: self._set_status(msg))
+
+    def _check_for_updates(self, forced=False):
+        if not getattr(sys, "frozen", False):
+            if forced:
+                messagebox.showinfo("Update Check", "Auto-update is only available from the built executable.")
+            return
+
+        self._set_status("Checking for updates…")
+
+        def task():
+            try:
+                info = self.updater.check_for_update()
+                if info["available"]:
+                    self.after(0, lambda: self._prompt_update(info))
+                else:
+                    if forced:
+                        self.after(0, lambda: self._show_update_dialog(
+                            "UP TO DATE",
+                            f"You're running the latest version ({APP_VERSION}).",
+                            show_update_btn=False
+                        ))
+                    self.after(0, lambda: self._set_status("Voxarah is up to date"))
+            except Exception as e:
+                if forced:
+                    self.after(0, lambda: messagebox.showerror("Update Error", str(e)))
+                self.after(0, lambda: self._set_status("Update check failed"))
+
+        threading.Thread(target=task, daemon=True).start()
+
+    def _prompt_update(self, info):
+        version = info.get("version", "?")
+        notes   = info.get("notes", "").strip()
+        url     = info.get("url")
+        body    = f"Version {version} is available.\n\n{notes}" if notes else f"Version {version} is available."
+        self._show_update_dialog(
+            f"UPDATE  AVAILABLE  —  v{version}",
+            body,
+            show_update_btn=True,
+            on_update=lambda: (
+                self._set_status(f"Downloading update {version}…"),
+                threading.Thread(target=self._download_and_install, args=(url,), daemon=True).start()
+            )
+        )
+
+    def _show_update_dialog(self, title: str, body: str, show_update_btn=True, on_update=None):
+        dlg = tk.Toplevel(self)
+        dlg.title("Voxarah Update")
+        dlg.configure(bg=BLACK)
+        dlg.resizable(False, False)
+        dlg.grab_set()
+        dlg.focus_set()
+
+        # Yellow top stripe
+        tk.Frame(dlg, bg=YELLOW, height=2).pack(fill="x")
+
+        # Header bar
+        header = tk.Frame(dlg, bg=BLACK, height=36)
+        header.pack(fill="x")
+        header.pack_propagate(False)
+        tk.Frame(header, bg=YELLOW, width=3).pack(side="left", fill="y")
+        tk.Label(header, text=title, font=FONT_DISPLAY_SM,
+                 fg=YELLOW, bg=BLACK, padx=14).pack(side="left", fill="y")
+
+        # Divider
+        tk.Frame(dlg, bg=EDGE, height=1).pack(fill="x")
+
+        # Body text
+        body_frame = tk.Frame(dlg, bg=CARBON_2, padx=20, pady=16)
+        body_frame.pack(fill="x")
+        tk.Label(body_frame, text=body, font=FONT_BODY, fg=TEXT, bg=CARBON_2,
+                 wraplength=340, justify="left").pack(anchor="w")
+
+        # Button row
+        btn_row = tk.Frame(dlg, bg=BLACK, pady=12, padx=14)
+        btn_row.pack(fill="x")
+
+        if show_update_btn:
+            def do_update():
+                dlg.destroy()
+                if on_update:
+                    on_update()
+
+            PrimaryButton(btn_row, "UPDATE NOW", command=do_update).pack(side="left", padx=(0, 8))
+            GhostButton(btn_row, "LATER",
+                        command=lambda: (dlg.destroy(), self._set_status("Update postponed"))
+                        ).pack(side="left")
+        else:
+            PrimaryButton(btn_row, "OK", command=dlg.destroy).pack(side="left")
+
+        dlg.update_idletasks()
+        w, h = dlg.winfo_width(), dlg.winfo_height()
+        x = self.winfo_x() + (self.winfo_width()  - w) // 2
+        y = self.winfo_y() + (self.winfo_height() - h) // 2
+        dlg.geometry(f"+{x}+{y}")
+
+    def _download_and_install(self, url):
+        try:
+            downloaded = self.updater.download_update(url)
+            self.after(0, lambda: self._show_update_dialog(
+                "UPDATE READY",
+                "The update has been downloaded.\nVoxarah will restart to finish installing.",
+                show_update_btn=False
+            ))
+            self.updater.install_update(downloaded)
+            self.after(0, self.quit)
+        except Exception as e:
+            self.after(0, lambda: messagebox.showerror("Update Error", str(e)))
+            self.after(0, lambda: self._set_status("Update failed"))
 
     def _show_results(self):
         if not self.results:
@@ -734,6 +939,15 @@ class AudioFlowApp(tk.Tk):
                 cb.bind("<<ComboboxSelected>>",
                         lambda ev, k=key, v=var: self.settings.set(k, v.get()))
 
+            elif wtype == "string":
+                var = tk.StringVar(value=self.settings.get(key) or "")
+                e = tk.Entry(f, textvariable=var, font=FONT_MONO_MED,
+                             width=36, bg=CARBON_4, fg=YELLOW,
+                             insertbackground=YELLOW, relief="flat",
+                             highlightbackground=EDGE, highlightthickness=1)
+                e.pack(side="right", padx=12, pady=6)
+                e.bind("<FocusOut>", lambda ev, k=key, v=var: self.settings.set(k, v.get().strip()))
+
         from coaching.profiles import get_all_profiles
 
         section("Analysis")
@@ -759,6 +973,10 @@ class AudioFlowApp(tk.Tk):
         row("Log verbosity",                 "log_verbosity",         "choice",
             choices=["quiet", "normal", "verbose"])
         row("Auto-analyze on load",          "auto_analyze_on_load",  "bool")
+
+        section("Updates")
+        row("Auto-check for updates",       "auto_update_check",     "bool")
+        row("Update manifest URL",          "update_manifest_url",   "string")
 
         btn_row = tk.Frame(frame, bg=CARBON_1)
         btn_row.pack(fill="x", padx=24, pady=20)

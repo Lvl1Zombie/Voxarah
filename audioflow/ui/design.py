@@ -43,28 +43,28 @@ MUTED         = TEXT_MUTED
 
 # ── Fonts ─────────────────────────────────────────────────────────────────────
 # Tkinter fallbacks — Orbitron not available natively, use closest equivalents
-FONT_DISPLAY  = ("Segoe UI", 14, "bold")       # wordmark / big numbers
-FONT_DISPLAY_SM = ("Segoe UI", 10, "bold")
-FONT_TITLE    = ("Segoe UI", 11, "bold")
-FONT_LABEL    = ("Segoe UI", 8, "bold")        # section labels
-FONT_BODY     = ("Segoe UI", 10)
-FONT_BODY_SB  = ("Segoe UI", 10, "bold")
-FONT_SMALL    = ("Segoe UI", 9)
-FONT_MONO     = ("Consolas", 8)                # readouts, timecodes
-FONT_MONO_MED = ("Consolas", 9)
-FONT_STAT     = ("Consolas", 20, "bold")       # big stat numbers
-FONT_STAT_SM  = ("Consolas", 13, "bold")
-FONT_BTN      = ("Segoe UI", 9, "bold")
-FONT_BTN_LG   = ("Segoe UI", 10, "bold")
-FONT_BADGE    = ("Consolas", 7, "bold")
-FONT_TAB      = ("Segoe UI", 9, "bold")
+FONT_DISPLAY  = ("Segoe UI", 16, "bold")       # wordmark / big numbers
+FONT_DISPLAY_SM = ("Segoe UI", 12, "bold")
+FONT_TITLE    = ("Segoe UI", 13, "bold")
+FONT_LABEL    = ("Segoe UI", 10, "bold")       # section labels
+FONT_BODY     = ("Segoe UI", 11)
+FONT_BODY_SB  = ("Segoe UI", 11, "bold")
+FONT_SMALL    = ("Segoe UI", 10)
+FONT_MONO     = ("Consolas", 10)               # readouts, timecodes
+FONT_MONO_MED = ("Consolas", 11)
+FONT_STAT     = ("Consolas", 24, "bold")       # big stat numbers
+FONT_STAT_SM  = ("Consolas", 15, "bold")
+FONT_BTN      = ("Segoe UI", 10, "bold")
+FONT_BTN_LG   = ("Segoe UI", 11, "bold")
+FONT_BADGE    = ("Consolas", 9, "bold")
+FONT_TAB      = ("Segoe UI", 10, "bold")
 
 # ── Dimensions ────────────────────────────────────────────────────────────────
-TITLEBAR_H    = 40
-TABBAR_H      = 34
-LEFT_PANEL_W  = 248
-BOTTOM_BAR_H  = 24
-STAT_ROW_H    = 60
-WAVEFORM_H    = 72
-SECTION_PAD   = 14
-ITEM_GAD      = 8
+TITLEBAR_H    = 84
+TABBAR_H      = 40
+LEFT_PANEL_W  = 272
+BOTTOM_BAR_H  = 28
+STAT_ROW_H    = 72
+WAVEFORM_H    = 84
+SECTION_PAD   = 16
+ITEM_GAD      = 10

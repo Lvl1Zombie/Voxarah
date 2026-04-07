@@ -31,6 +31,10 @@ DEFAULTS = {
     "theme":                   "dark",
     "log_verbosity":           "normal",  # "quiet" | "normal" | "verbose"
     "auto_analyze_on_load":    False,
+
+    # ── Update Settings ────────────────────────────────────────────
+    "auto_update_check":       True,
+    "update_manifest_url":     "",
 }
 
 

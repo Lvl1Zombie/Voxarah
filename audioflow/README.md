@@ -50,6 +50,23 @@ python build.py
 Your `.exe` will appear in the `dist/` folder as `Voxarah.exe`.  
 Double-click it — no Python needed on the target machine.
 
+## Auto-update Support
+The built executable can check for newer releases from a remote JSON update manifest.
+- Configure `update_manifest_url` in app settings to point to a valid manifest
+- The app can automatically check on startup and also lets you manually check from the status bar
+- If an update is found, the app downloads the new `.exe`, installs it after exit, and relaunches automatically
+
+### Update manifest format
+Publish a JSON file with this shape:
+
+```json
+{
+  "version": "2.1",
+  "url": "https://example.com/voxarah/Voxarah.exe",
+  "notes": "Bug fixes and performance improvements."
+}
+```
+
 ---
 
 ## How to Use It

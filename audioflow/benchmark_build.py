@@ -12,7 +12,7 @@ Phases:
   5. Test old vs new scoring on held-out samples
 """
 
-import sys, os, math, wave, struct, subprocess, tempfile, urllib.request, textwrap
+import sys, os, math, wave, struct, subprocess, tempfile, urllib.request, textwrap, zipfile
 
 sys.stdout.reconfigure(encoding="utf-8", errors="replace")
 
@@ -34,6 +34,7 @@ HEADERS = {
 }
 
 def download(url: str, dest: str) -> bool:
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
     if os.path.exists(dest) and os.path.getsize(dest) > 10_000:
         print(f"    [cached] {os.path.basename(dest)}")
         return True
@@ -243,6 +244,32 @@ def compute_ranges(all_feats: list[dict]) -> dict:
 # MAIN
 # ══════════════════════════════════════════════════════════════════════
 if __name__ == "__main__":
+
+    os.makedirs(SAMPLES, exist_ok=True)
+
+    # Download ffmpeg if not present
+    if not os.path.exists(FFMPEG):
+        print("  Downloading ffmpeg...")
+        ffmpeg_zip = os.path.join(SAMPLES, "ffmpeg.zip")
+        if download("https://www.gyan.dev/ffmpeg/builds/ffmpeg-release-essentials.zip", ffmpeg_zip):
+            try:
+                with zipfile.ZipFile(ffmpeg_zip, 'r') as zip_ref:
+                    # Extract ffmpeg.exe from the bin folder
+                    for file in zip_ref.namelist():
+                        if file.endswith('bin/ffmpeg.exe'):
+                            zip_ref.extract(file, SAMPLES)
+                            extracted_path = os.path.join(SAMPLES, file)
+                            os.rename(extracted_path, FFMPEG)
+                            # Remove the extracted folder
+                            import shutil
+                            shutil.rmtree(os.path.dirname(extracted_path))
+                            break
+                os.remove(ffmpeg_zip)
+                print("  ffmpeg downloaded successfully.")
+            except Exception as e:
+                print(f"  Failed to extract ffmpeg: {e}")
+        else:
+            print("  Failed to download ffmpeg. Please download manually to samples/ffmpeg.exe")
 
     print("=" * 75)
     print("  VOXARAH ACOUSTIC BENCHMARK BUILDER")
