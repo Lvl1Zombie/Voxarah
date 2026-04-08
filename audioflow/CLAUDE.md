@@ -29,8 +29,8 @@
 ## AI Coaching
 - Local LLM feedback using **Ollama llama3.1:8b**
 - Text-to-speech via **pyttsx3**
-- Primary TTS voice: **Microsoft Zira**
-- Looking for **Ava Natural** voice support
+- Voice priority chain: Ava (Natural) → Jenny (Natural) → Aria (Natural) → Zira
+- Ava Natural is already handled in `core/voice.py` — no work needed
 
 ## Audacity Integration
 - Integration with **Audacity** using **mod-script-pipe** named pipes
@@ -41,20 +41,30 @@
 - Replaced the previous **energy similarity** approach
 
 ## Coaching Benchmarks
-- Benchmarks calibrated from real **LibriVox narration samples**
-- Calibrated profiles: **Narrator** / **Audiobook**
-- Remaining profiles still needing calibration:
-  - Calm
-  - Energetic
-  - Commercial
-  - Character
+- All 6 profiles calibrated from real LibriVox public-domain audio (4 samples each)
+- `scrape_profiles.py` automates download → feature extraction → range computation → file update
+- `coaching/measured_benchmarks.py` holds the calibrated ranges; `profiles.py` overlays them at scoring time
+- Re-run `python scrape_profiles.py` to refresh benchmarks (cached downloads skipped automatically)
+
+| Profile | WPM range | Calibration sources |
+|---|---|---|
+| Narrator / Documentary | 102–173 | Art of War, Jane Eyre, Alice in Wonderland |
+| Audiobook | 102–173 | Art of War, Jane Eyre, Alice in Wonderland |
+| Calm / Soothing | 71–125 | Marcus Aurelius, Whitman, Dante, à Kempis |
+| Energetic / Hype | 87–133 | Sherlock Holmes, Treasure Island, Time Machine, Monte Cristo |
+| Commercial / Salesy | 93–147 | Acres of Diamonds, Art of Public Speaking, Carnegie |
+| Character / Animation | 82–141 | A Christmas Carol (dramatic), Alice, Romeo & Juliet, Holmes |
+
+**Known limitation:** Energetic/Hype and Commercial/Salesy are calibrated from LibriVox narrators
+(steady readers, ~90–130 WPM) — not true hype/promo voice actors. Hardcoded targets in
+`profiles.py` (155–210 WPM / 130–180 WPM) are more accurate for those styles. Consider
+sourcing YouTube/podcast clips for a future re-calibration of those two profiles.
 
 ## TODO
-- Calibrate remaining 4 coaching profiles
 - Add built-in recorder
 - Enable before/after playback
 - Add batch processing
-- Create a Windows `.exe` build
+- Re-calibrate Energetic/Hype and Commercial/Salesy from non-LibriVox hype/promo sources
 
 ## Platform and Dependencies
 - Target runtime: **Python 3.14**
