@@ -7,10 +7,11 @@ build/
 # Virtual environment
 .venv/
 
-# Audio samples (large binary files)
-audioflow/samples/*.wav
-audioflow/samples/*.mp3
-audioflow/samples/ffmpeg.exe
+# Audio samples (large binary files — downloaded by scrape_profiles.py / benchmark_build.py)
+audioflow/samples/
+
+# Auto-generated benchmark backup
+audioflow/coaching/measured_benchmarks_backup.py
 
 # IDE / Editor
 .vscode/
