@@ -294,52 +294,56 @@ class AudioFlowApp(tk.Tk):
         bar.pack(fill="x", side="bottom")
         bar.pack_propagate(False)
 
-        def sep():
-            tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="left", fill="y", pady=8)
+        def _rsep():
+            tk.Frame(bar, bg=SEP_COLOR, width=1).pack(
+                side="right", fill="y", pady=8)
 
-        self._status_var = tk.StringVar(value="READY")
-        tk.Label(bar, textvariable=self._status_var,
-                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left", padx=12)
+        def _btn(text, cmd):
+            lbl = tk.Label(bar, text=text, font=FONT_MONO,
+                           fg=TEXT_DIM, bg=BLACK, cursor="hand2", padx=10)
+            lbl.bind("<Button-1>", lambda e: cmd())
+            lbl.bind("<Enter>",   lambda e: lbl.config(fg=YELLOW))
+            lbl.bind("<Leave>",   lambda e: lbl.config(fg=TEXT_DIM))
+            return lbl
 
-        sep()
-        self._format_var = tk.StringVar(value="")
-        tk.Label(bar, textvariable=self._format_var,
-                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left", padx=12)
+        # ── RIGHT side — pack rightmost first so pack reserves space correctly ──
+        _btn("UPDATES",  lambda: self._check_for_updates(forced=True)
+             ).pack(side="right", padx=(0, 8))
+        _rsep()
+        _btn("FEEDBACK", self._open_feedback_dialog
+             ).pack(side="right")
+        _rsep()
+        tk.Label(bar, text=f"v{APP_VERSION}",
+                 font=FONT_MONO, fg=TEXT_MUTED, bg=BLACK).pack(side="right", padx=8)
+        _rsep()
 
-        # Right side — build right-to-left
-        GhostButton(bar, "CHECK UPDATES",
-                    command=lambda: self._check_for_updates(forced=True),
-                    bg=BLACK).pack(side="right", padx=(0, 12), pady=6)
-
-        tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=8)
-
-        GhostButton(bar, "GIVE FEEDBACK",
-                    command=self._open_feedback_dialog,
-                    bg=BLACK).pack(side="right", padx=(0, 8), pady=6)
-
-        tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=8)
-        tk.Label(bar, text=f"VOXARAH  v{APP_VERSION}",
-                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="right", padx=12)
-
-        tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=8)
+        # AI dot + label
         ollama_frame = tk.Frame(bar, bg=BLACK)
-        ollama_frame.pack(side="right", padx=12)
-        # Slightly larger dot for better visibility
+        ollama_frame.pack(side="right", padx=6)
         self._ollama_canvas = tk.Canvas(ollama_frame, width=10, height=10,
-                                         bg=BLACK, highlightthickness=0)
-        self._ollama_canvas.pack(side="left", padx=(0, 5))
+                                        bg=BLACK, highlightthickness=0)
+        self._ollama_canvas.pack(side="left", padx=(0, 4))
         self._ollama_dot = self._ollama_canvas.create_oval(
             1, 1, 9, 9, fill=EDGE_BRIGHT, outline="")
-        self._ollama_var = tk.StringVar(value="AI  OFFLINE")
+        self._ollama_var = tk.StringVar(value="AI OFFLINE")
         tk.Label(ollama_frame, textvariable=self._ollama_var,
-                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left")
+                 font=FONT_MONO, fg=TEXT_MUTED, bg=BLACK).pack(side="left")
         self._ollama_online  = False
         self._ollama_pulse_j = None
 
-        tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=8)
-        self._ffmpeg_var = tk.StringVar(value="FFMPEG —")
+        _rsep()
+        self._ffmpeg_var = tk.StringVar(value="FFMPEG")
         tk.Label(bar, textvariable=self._ffmpeg_var,
-                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="right", padx=12)
+                 font=FONT_MONO, fg=TEXT_MUTED, bg=BLACK).pack(side="right", padx=8)
+
+        # ── LEFT side last — gets remaining space ──────────────────
+        self._status_var = tk.StringVar(value="READY")
+        tk.Label(bar, textvariable=self._status_var,
+                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left", padx=(12, 0))
+        tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="left", fill="y", pady=8)
+        self._format_var = tk.StringVar(value="")
+        tk.Label(bar, textvariable=self._format_var,
+                 font=FONT_MONO, fg=TEXT_MUTED, bg=BLACK).pack(side="left", padx=8)
 
     def _set_status(self, msg):
         self._status_var.set(msg.upper())
