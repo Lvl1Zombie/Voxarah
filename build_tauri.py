@@ -43,18 +43,22 @@ _TRIPLES = [
 def run(cmd, cwd=None, env=None):
     """Run a command and stream output. Raises on non-zero exit."""
     merged_env = {**os.environ, **(env or {})}
-    # Ensure Cargo bin is on PATH
-    cargo_bin = Path.home() / ".cargo" / "bin"
-    if str(cargo_bin) not in merged_env.get("PATH", ""):
-        merged_env["PATH"] = str(cargo_bin) + os.pathsep + merged_env.get("PATH", "")
-    print(f"\n▶  {' '.join(str(c) for c in cmd)}")
-    r = subprocess.run(cmd, cwd=cwd or ROOT, env=merged_env)
+    # Ensure Cargo bin and Node/npm are on PATH
+    extra_paths = [
+        str(Path.home() / ".cargo" / "bin"),
+        r"C:\Program Files\nodejs",
+    ]
+    for p in extra_paths:
+        if p not in merged_env.get("PATH", ""):
+            merged_env["PATH"] = p + os.pathsep + merged_env.get("PATH", "")
+    print(f"\n>  {' '.join(str(c) for c in cmd)}")
+    r = subprocess.run(cmd, cwd=cwd or ROOT, env=merged_env, shell=True)
     if r.returncode != 0:
         sys.exit(f"Command failed with exit code {r.returncode}")
 
 
 def step_build_backend():
-    print("\n── Step 1: Build Python backend (PyInstaller) ──")
+    print("\n-- Step 1: Build Python backend (PyInstaller) --")
     run(
         [sys.executable, "-m", "PyInstaller", "--clean", "backend.spec"],
         cwd=AUDIOFLOW,
@@ -66,22 +70,22 @@ def step_build_backend():
     for triple in _TRIPLES:
         dst = BINARIES / f"voxarah-backend-{triple}.exe"
         shutil.copy2(src, dst)
-        print(f"   → Copied to {dst}")
+        print(f"   Copied to {dst}")
 
 
 def step_install_npm():
-    print("\n── Step 2: Install npm dependencies ──")
+    print("\n-- Step 2: Install npm dependencies --")
     run(["npm", "install"], cwd=TAURI_APP)
 
 
 def step_tauri_build():
-    print("\n── Step 3: Tauri build (MSI) ──")
+    print("\n-- Step 3: Tauri build (MSI) --")
     run(["npm", "run", "build"], cwd=TAURI_APP)
 
 
 def main():
     print("=" * 60)
-    print("  Voxarah — Desktop Build")
+    print("  Voxarah - Desktop Build")
     print("=" * 60)
 
     step_build_backend()
@@ -90,9 +94,9 @@ def main():
 
     msi_glob = list((TAURI_APP / "src-tauri" / "target" / "release" / "bundle" / "msi").glob("*.msi"))
     if msi_glob:
-        print(f"\n✓  Installer ready: {msi_glob[0]}")
+        print(f"\n[OK]  Installer ready: {msi_glob[0]}")
     else:
-        print("\n✓  Build complete (check tauri-app/src-tauri/target/release/bundle/)")
+        print("\n[OK]  Build complete (check tauri-app/src-tauri/target/release/bundle/)")
 
 
 if __name__ == "__main__":

@@ -9,8 +9,9 @@
 // IN_TAURI is true when loaded inside the Tauri webview (tauri:// protocol).
 // In that mode all API calls must be absolute since the page is not served by FastAPI.
 const IN_TAURI  = typeof window.__TAURI_INTERNALS__ !== 'undefined';
-const API_BASE  = IN_TAURI ? 'http://localhost:8000' : '';
-const WS_HOST   = IN_TAURI ? 'localhost:8000' : location.host;
+const _PORT     = IN_TAURI ? (window.VOXARAH_PORT || 8000) : null;
+const API_BASE  = IN_TAURI ? `http://localhost:${_PORT}` : '';
+const WS_HOST   = IN_TAURI ? `localhost:${_PORT}` : location.host;
 
 // ── State ─────────────────────────────────────────────────────────────────────
 const S = {

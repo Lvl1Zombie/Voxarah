@@ -37,7 +37,8 @@ from coaching.profiles import score_recording, get_all_profiles, get_profile_inf
 from coaching.characters import CHARACTER_DB
 
 APP_VERSION     = "2.1"
-BASE_DIR        = Path(__file__).parent
+# When frozen by PyInstaller, bundled data lives in sys._MEIPASS.
+BASE_DIR = Path(getattr(sys, "_MEIPASS", Path(__file__).parent))
 UPLOAD_DIR      = Path(tempfile.mkdtemp(prefix="voxarah_web_"))
 DISCORD_WEBHOOK = (
     "https://discord.com/api/webhooks/1491454548714324209/"
@@ -254,7 +255,8 @@ app = FastAPI(title="Voxarah", version=APP_VERSION)
 # Allow Tauri webview (tauri://localhost) to call the API cross-origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["tauri://localhost", "http://tauri.localhost", "http://localhost:8000"],
+    allow_origins=["tauri://localhost", "http://tauri.localhost", "http://localhost"],
+    allow_origin_regex=r"http://localhost:\d+",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -731,3 +733,9 @@ async def websocket_endpoint(ws: WebSocket):
         ws_manager.disconnect(ws)
     except Exception:
         ws_manager.disconnect(ws)
+
+
+if __name__ == "__main__":
+    import uvicorn
+    port = int(os.environ.get("VOXARAH_PORT", 8000))
+    uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

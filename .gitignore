@@ -29,3 +29,17 @@ Thumbs.db
 Desktop.ini
 .DS_Store
 dist/*.lnk
+
+# Tauri build artifacts
+tauri-app/node_modules/
+tauri-app/package-lock.json
+tauri-app/frontend/
+tauri-app/src-tauri/target/
+tauri-app/src-tauri/gen/
+tauri-app/src-tauri/binaries/
+tauri-app/src-tauri/windres.exe
+tauri-app/src-tauri/windres.spec
+
+# PyInstaller output
+audioflow/dist/
+audioflow/build/
