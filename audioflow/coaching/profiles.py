@@ -7,6 +7,18 @@ import math
 import numpy as np
 from typing import Dict, List, Tuple
 
+try:
+    from coaching.measured_benchmarks import MEASURED_PROFILES as _MEASURED
+except ImportError:
+    _MEASURED = {}
+
+# Keys that measured_benchmarks calibrates — prefer those values when available
+_CALIBRATED_KEYS = (
+    "speech_rate_wpm", "pause_ratio", "energy_consistency",
+    "dynamic_range_db", "max_long_pause_sec", "stutter_tolerance",
+    "clarity_floor_db",
+)
+
 
 # ── Style Profiles ────────────────────────────────────────────────────────────
 # Each profile defines target acoustic benchmarks:
@@ -128,7 +140,12 @@ def score_recording(results: dict, profile_name: str) -> Dict:
     """
     if profile_name not in VOICE_PROFILES:
         profile_name = "Narrator / Documentary"
-    profile = VOICE_PROFILES[profile_name]
+    profile = dict(VOICE_PROFILES[profile_name])
+    # Overlay calibrated benchmark values when available
+    measured = _MEASURED.get(profile_name, {})
+    for key in _CALIBRATED_KEYS:
+        if key in measured:
+            profile[key] = measured[key]
 
     samples  = results['samples']
     sr       = results['sample_rate']

@@ -33,8 +33,14 @@ SAMPLES = os.path.join(ROOT, "samples", "profile_calibration")
 FFMPEG  = os.path.join(ROOT, "samples", "ffmpeg.exe")
 sys.path.insert(0, ROOT)
 
-from core.analyzer import AudioAnalyzer, rms, db_to_linear, read_wav_mono, write_wav_mono
+import numpy as np
+from core.analyzer import AudioAnalyzer, db_to_linear, read_wav_mono, write_wav_mono
 from core.settings import SettingsManager
+
+
+def rms(chunk) -> float:
+    a = np.asarray(chunk, dtype=np.float64)
+    return float(np.sqrt(np.mean(a ** 2)))
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -53,20 +59,19 @@ PROFILE_CONFIGS = {
     "calm": {
         "profile_name": "Calm / Soothing",
         "search_queries": [
-            'subject:"librivox" subject:"Poetry" language:English',
-            'subject:"librivox" subject:"Meditations" language:English',
-            'subject:"librivox" subject:"Sonnets" language:English',
-            'subject:"librivox" subject:"Spiritual" language:English',
+            'collection:librivoxaudio poetry',
+            'collection:librivoxaudio meditations',
+            'collection:librivoxaudio sonnets',
         ],
         "curated_ids": [
-            # Marcus Aurelius: slow, measured, philosophical
-            "meditations_0809_librivox",
+            # Marcus Aurelius: slow, measured, philosophical (correct ID)
+            "meditations_0708_librivox",
             # Whitman: poetry, calm pace
             "leaves_of_grass_librivox",
-            # Tagore: lyrical, unhurried
-            "gitanjali_librivox",
-            # Shakespeare sonnets
-            "shakespeare_sonnets_librivox",
+            # Dante: slow poetic delivery
+            "divine_comedy_librivox",
+            # Thomas à Kempis: quiet, contemplative
+            "imitation_of_christ_librivox",
         ],
         "n_samples": 4,
         "description": (
@@ -82,20 +87,19 @@ PROFILE_CONFIGS = {
     "energetic": {
         "profile_name": "Energetic / Hype",
         "search_queries": [
-            'subject:"librivox" subject:"Adventure Fiction" language:English',
-            'subject:"librivox" subject:"Sea Stories" language:English',
-            'subject:"librivox" subject:"War Stories" language:English',
-            'subject:"librivox" subject:"Action" language:English',
+            'collection:librivoxaudio adventure fiction',
+            'collection:librivoxaudio treasure island',
+            'collection:librivoxaudio sherlock holmes',
         ],
         "curated_ids": [
-            # H.G. Wells: punchy dramatic narration
-            "war_of_the_worlds_librivox",
-            # Stevenson: fast adventure delivery
-            "treasure_island_0803_librivox",
-            # Conan Doyle: energetic case-driven pacing
-            "adventures_of_sherlock_holmes_librivox",
-            # Haggard: breathless adventure
-            "king_solomons_mines_librivox",
+            # Conan Doyle: fast, energetic case delivery
+            "adventures_holmes",
+            # Stevenson: breathless adventure narration
+            "treasure_island_ap_librivox",
+            # H.G. Wells: dramatic pacing
+            "timemachine_sjm_librivox",
+            # Dumas: sweeping adventure chapters
+            "countofmontecristo_1303_librivox",
         ],
         "n_samples": 4,
         "description": (
@@ -111,20 +115,19 @@ PROFILE_CONFIGS = {
     "commercial": {
         "profile_name": "Commercial / Salesy",
         "search_queries": [
-            'subject:"librivox" subject:"speeches" language:English',
-            'subject:"librivox" subject:"Self-Help" language:English',
-            'subject:"librivox" subject:"Business" language:English',
-            'subject:"librivox" subject:"Oratory" language:English',
+            'collection:librivoxaudio speeches',
+            'collection:librivoxaudio Carnegie public speaking',
+            'collection:librivoxaudio oratory',
         ],
         "curated_ids": [
-            # Conwell: famous motivational/persuasive lecture
-            "acres_of_diamonds_librivox",
-            # Carnegie: self-help, confident delivery
-            "public_speaking_carnegie_librivox",
-            # Lincoln: persuasive, authoritative cadence
-            "lincoln_speeches_librivox",
-            # Dale Carnegie public speaking
-            "art_of_public_speaking_librivox",
+            # Conwell: famous motivational lecture, punchy persuasive tone
+            "acres_of_diamonds_1008_librivox",
+            # Lucas/Carnegie: textbook on persuasive speech delivery
+            "art_public_speaking_1101_librivox",
+            # Andrew Carnegie autobiography: confident, authoritative cadence
+            "autobiography_carnegie_1212_librivox",
+            # Empire of Business essays: direct business persuasion
+            "empireofbusiness_2010_librivox",
         ],
         "n_samples": 4,
         "description": (
@@ -140,20 +143,19 @@ PROFILE_CONFIGS = {
     "character": {
         "profile_name": "Character / Animation",
         "search_queries": [
-            'subject:"librivox" subject:"Plays" language:English',
-            'subject:"librivox" subject:"Dramatic Readings" language:English',
-            'subject:"librivox" subject:"Children\'s Fiction" language:English',
-            'subject:"librivox" subject:"Fantasy Fiction" language:English',
+            'collection:librivoxaudio dramatic reading',
+            'collection:librivoxaudio plays Shakespeare',
+            'collection:librivoxaudio Christmas Carol',
         ],
         "curated_ids": [
-            # Dickens: iconic character voices throughout
-            "christmas_carol_librivox",
-            # Kipling: multi-character animal voices
-            "jungle_book_librivox",
-            # Barrie: varied child/adult/villain voices
-            "peter_pan_librivox",
-            # Carroll: already in narrator calibration but ideal for characters
+            # Dickens dramatic reading: full character voice cast
+            "christmascarol_1104_librivox",
+            # Carroll: iconic varied voices (already downloaded)
             "alice_in_wonderland_librivox",
+            # Shakespeare: play format, distinct characters
+            "romeo_and_juliet_librivox",
+            # Conan Doyle: Holmes/Watson dynamic, expressive delivery
+            "adventures_holmes",
         ],
         "n_samples": 4,
         "description": (
@@ -238,17 +240,19 @@ def mp3_to_wav(mp3: str, wav: str) -> bool:
 
 def search_archive(query: str, rows: int = 20) -> list[str]:
     """
-    Search archive.org full-text index. Returns list of identifiers
+    Search archive.org for LibriVox audio items. Returns list of identifiers
     sorted by downloads descending.
+
+    archive.org requires fl[] and sort[] as repeated params — urlencode with
+    doseq handles this correctly.
     """
-    params = urllib.parse.urlencode({
-        "q": query,
-        "fl[]": "identifier",
-        "sort[]": "downloads desc",
-        "rows": rows,
-        "output": "json",
-        "mediatype": "audio",
-    })
+    params = urllib.parse.urlencode([
+        ("q",        query),
+        ("fl[]",     "identifier"),
+        ("sort[]",   "downloads desc"),
+        ("rows",     rows),
+        ("output",   "json"),
+    ])
     url = f"https://archive.org/advancedsearch.php?{params}"
     data = fetch_json(url)
     if not data:
