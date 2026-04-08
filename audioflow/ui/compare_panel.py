@@ -10,6 +10,7 @@ from tkinter import filedialog
 
 from coaching.profiles import score_recording, get_all_profiles, get_profile_info
 from ui.design import *
+from ui.components import PrimaryButton, GhostButton
 
 MAX_TAKES = 3
 
@@ -68,13 +69,9 @@ class CompareTakesPanel:
                       on_select=self._on_profile_change,
                       width=24, bg=CARBON_2).pack(side="left", padx=(0, 12))
 
-        self._compare_btn = tk.Button(
-            top, text="RE-SCORE", font=FONT_BTN,
-            bg=CARBON_3, fg=TEXT_MUTED, relief="flat",
-            bd=0, padx=14, pady=6, cursor="hand2",
-            activebackground=CARBON_4, activeforeground=TEXT,
-            command=self._rescore_all)
-        self._compare_btn.pack(side="left")
+        self._compare_btn = GhostButton(
+            top, "RE-SCORE", command=self._rescore_all, bg=CARBON_2)
+        self._compare_btn.pack(side="left", pady=8)
 
         tk.Frame(top, bg=EDGE, height=1).pack(side="bottom", fill="x")
 
@@ -128,20 +125,14 @@ class CompareTakesPanel:
         load_row = tk.Frame(parent, bg=BG)
         load_row.pack(fill="x", padx=10, pady=(8, 0))
 
-        w["load_btn"] = tk.Button(
-            load_row, text="LOAD FILE", font=FONT_BTN,
-            bg=CARBON_3, fg=TEXT_MUTED, relief="flat", bd=0,
-            padx=10, pady=5, cursor="hand2",
-            activebackground=CARBON_4, activeforeground=TEXT,
-            command=lambda i=idx: self._load_take(i))
+        w["load_btn"] = GhostButton(
+            load_row, "LOAD FILE", command=lambda i=idx: self._load_take(i),
+            bg=CARBON_1)
         w["load_btn"].pack(side="left", fill="x", expand=True, padx=(0, 4))
 
-        w["clear_btn"] = tk.Button(
-            load_row, text="✕", font=FONT_BTN,
-            bg=CARBON_3, fg=TEXT_MUTED, relief="flat", bd=0,
-            padx=8, pady=5, cursor="hand2",
-            activebackground=CARBON_4, activeforeground=RED_FLAG,
-            command=lambda i=idx: self._clear_take(i))
+        w["clear_btn"] = GhostButton(
+            load_row, "✕", command=lambda i=idx: self._clear_take(i),
+            bg=CARBON_1)
         w["clear_btn"].pack(side="left")
 
         # Filename + status
@@ -175,13 +166,10 @@ class CompareTakesPanel:
                  bg=CARBON_2).pack(pady=(0, 4))
 
         # Analyze button (inside score frame, shown when file loaded)
-        w["analyze_btn"] = tk.Button(
-            score_frame, text="ANALYZE", font=FONT_BTN,
-            bg=YELLOW, fg=BLACK, relief="flat", bd=0,
-            padx=12, pady=5, cursor="hand2",
-            activebackground=YELLOW_DIM, activeforeground=BLACK,
-            command=lambda i=idx: self._analyze_take(i),
-            state="disabled")
+        w["analyze_btn"] = PrimaryButton(
+            score_frame, "ANALYZE",
+            command=lambda i=idx: self._analyze_take(i))
+        w["analyze_btn"].config(state="disabled")
         w["analyze_btn"].pack(pady=(0, 8), padx=10, fill="x")
 
         # Dimension bars

@@ -30,6 +30,7 @@ from core.ai_coach        import AICoach
 from core.updater         import Updater
 from core.voice           import VoiceEngine
 from ui.design            import *
+from ui.design            import lerp_color as _lerp_color
 from ui.components        import (
     SectionLabel, HDivider, PrimaryButton, SecondaryButton, GhostButton,
     LamboSlider, LamboToggle, StatCard, BadgeLabel,
@@ -180,10 +181,11 @@ class AudioFlowApp(tk.Tk):
         bar.pack(fill="x")
         bar.pack_propagate(False)
 
-        self._tab_frames  = {}
-        self._tab_btns    = {}
-        self._tab_unders  = {}   # yellow underline frames
-        self._active_tab  = None
+        self._tab_frames    = {}
+        self._tab_btns      = {}
+        self._tab_unders    = {}
+        self._tab_anim_jobs = {}   # per-tab pending after() jobs
+        self._active_tab    = None
 
         tabs = [
             ("editor",   "  EDITOR  "),
@@ -197,35 +199,70 @@ class AudioFlowApp(tk.Tk):
             wrap.pack(side="left")
 
             btn = tk.Label(wrap, text=label, font=FONT_TAB,
-                           fg=TEXT_DIM, bg=BLACK, cursor="hand2", pady=6)
-            btn.pack(side="top")
+                           fg=TEXT_DIM, bg=BLACK, cursor="hand2",
+                           pady=0, padx=2)
+            btn.pack(side="top", pady=(10, 0))
             btn.bind("<Button-1>", lambda e, k=key: self._switch_tab(k))
-            self._tab_btns[key] = btn
+            btn.bind("<Enter>",
+                     lambda e, k=key: self._tab_hover(k, entering=True))
+            btn.bind("<Leave>",
+                     lambda e, k=key: self._tab_hover(k, entering=False))
+            self._tab_btns[key]      = btn
+            self._tab_anim_jobs[key] = None
 
             under = tk.Frame(wrap, bg=BLACK, height=2)
             under.pack(fill="x", side="bottom")
             self._tab_unders[key] = under
 
+        # Bottom hairline separator
         tk.Frame(bar, bg=EDGE, height=1).pack(side="bottom", fill="x")
+
+    def _tab_hover(self, key, entering):
+        """Subtle text brightening on hover for inactive tabs."""
+        if key == self._active_tab:
+            return
+        target = TEXT if entering else TEXT_DIM
+        self._tab_btns[key].config(fg=target)
 
     def _switch_tab(self, key):
         if self._active_tab == key:
             return
+        old_key          = self._active_tab
         self._active_tab = key
-        for k, btn in self._tab_btns.items():
-            if k == key:
-                btn.config(fg=YELLOW, bg=CARBON_2)
-                self._tab_unders[k].config(bg=YELLOW)
-                btn.master.config(bg=CARBON_2)
-            else:
-                btn.config(fg=TEXT_DIM, bg=BLACK)
+
+        # Instantly hide all other tabs' indicator
+        for k in self._tab_btns:
+            if k != key:
+                if self._tab_anim_jobs.get(k):
+                    self.after_cancel(self._tab_anim_jobs[k])
+                    self._tab_anim_jobs[k] = None
+                self._tab_btns[k].config(fg=TEXT_DIM, bg=BLACK)
                 self._tab_unders[k].config(bg=BLACK)
-                btn.master.config(bg=BLACK)
+                self._tab_btns[k].master.config(bg=BLACK)
+
+        # Snap the underline and bg, then animate text color in
+        self._tab_btns[key].master.config(bg=CARBON_2)
+        self._tab_unders[key].config(bg=YELLOW)
+        self._tab_btns[key].config(bg=CARBON_2)
+        self._anim_tab_fg(key, TEXT_DIM, YELLOW, step=0, steps=8)
+
+        # Switch body frames
         for k, frame in self._tab_frames.items():
             if k == key:
                 frame.pack(fill="both", expand=True)
             else:
                 frame.pack_forget()
+
+    def _anim_tab_fg(self, key, c_from, c_to, step, steps):
+        """Fade a tab label's fg color over `steps` frames."""
+        if step > steps:
+            self._tab_btns[key].config(fg=c_to)
+            return
+        color = _lerp_color(c_from, c_to, step / steps)
+        self._tab_btns[key].config(fg=color)
+        job = self.after(14, lambda: self._anim_tab_fg(
+            key, c_from, c_to, step + 1, steps))
+        self._tab_anim_jobs[key] = job
 
     # ══════════════════════════════════════════════════════════════
     # BODY
@@ -279,14 +316,17 @@ class AudioFlowApp(tk.Tk):
         tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=8)
         ollama_frame = tk.Frame(bar, bg=BLACK)
         ollama_frame.pack(side="right", padx=12)
-        self._ollama_canvas = tk.Canvas(ollama_frame, width=8, height=8,
+        # Slightly larger dot for better visibility
+        self._ollama_canvas = tk.Canvas(ollama_frame, width=10, height=10,
                                          bg=BLACK, highlightthickness=0)
-        self._ollama_canvas.pack(side="left", padx=(0, 4))
-        self._ollama_dot = self._ollama_canvas.create_oval(1, 1, 7, 7,
-                                                            fill=EDGE_BRIGHT, outline="")
+        self._ollama_canvas.pack(side="left", padx=(0, 5))
+        self._ollama_dot = self._ollama_canvas.create_oval(
+            1, 1, 9, 9, fill=EDGE_BRIGHT, outline="")
         self._ollama_var = tk.StringVar(value="AI  OFFLINE")
         tk.Label(ollama_frame, textvariable=self._ollama_var,
                  font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left")
+        self._ollama_online  = False
+        self._ollama_pulse_j = None
 
         tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=8)
         self._ffmpeg_var = tk.StringVar(value="FFMPEG —")
@@ -306,9 +346,41 @@ class AudioFlowApp(tk.Tk):
         threading.Thread(target=_check, daemon=True).start()
 
     def _update_ollama_indicator(self, online):
-        color = YELLOW if online else EDGE_BRIGHT
-        self._ollama_canvas.itemconfig(self._ollama_dot, fill=color)
-        self._ollama_var.set("AI  LIVE" if online else "AI  OFFLINE")
+        self._ollama_online = online
+        if online:
+            self._ollama_canvas.itemconfig(self._ollama_dot, fill=YELLOW)
+            self._ollama_var.set("AI  LIVE")
+            self._start_ai_pulse()
+        else:
+            self._stop_ai_pulse()
+            self._ollama_canvas.itemconfig(self._ollama_dot, fill=EDGE_BRIGHT)
+            self._ollama_var.set("AI  OFFLINE")
+
+    def _start_ai_pulse(self):
+        """Gentle breathing pulse on the AI dot when online."""
+        self._stop_ai_pulse()
+        self._ai_pulse_phase = 0
+
+        def pulse():
+            if not self._ollama_online:
+                return
+            # Phase 0–15: dim → bright, 16–31: bright → dim
+            ph = self._ai_pulse_phase % 32
+            t  = ph / 15.0 if ph < 16 else (31 - ph) / 15.0
+            color = _lerp_color(YELLOW_DIM, YELLOW, t)
+            try:
+                self._ollama_canvas.itemconfig(self._ollama_dot, fill=color)
+            except Exception:
+                return
+            self._ai_pulse_phase += 1
+            self._ollama_pulse_j = self.after(60, pulse)
+
+        self._ollama_pulse_j = self.after(400, pulse)
+
+    def _stop_ai_pulse(self):
+        if self._ollama_pulse_j:
+            self.after_cancel(self._ollama_pulse_j)
+            self._ollama_pulse_j = None
 
     # ══════════════════════════════════════════════════════════════
     # TAB 1 — EDITOR
