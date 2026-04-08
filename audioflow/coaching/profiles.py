@@ -4,6 +4,7 @@ Compares recordings against 6 professional voice style profiles and gives feedba
 """
 
 import math
+import numpy as np
 from typing import Dict, List, Tuple
 
 
@@ -173,17 +174,14 @@ def score_recording(results: dict, profile_name: str) -> Dict:
     # ── 4. Energy Consistency ─────────────────────────────────────
     frame_size = int(sr * 0.1)
     thresh = math.pow(10, profile['clarity_floor_db'] / 20.0)
-    speech_levels = []
-    for i in range(0, len(samples) - frame_size, frame_size):
-        chunk = samples[i: i + frame_size]
-        level = math.sqrt(sum(s*s for s in chunk) / len(chunk))
-        if level > thresh:
-            speech_levels.append(level)
+    arr = np.asarray(samples, dtype=np.float32)
+    n   = (len(arr) // frame_size) * frame_size
+    frame_rms    = np.sqrt(np.mean(arr[:n].reshape(-1, frame_size) ** 2, axis=1))
+    speech_levels = frame_rms[frame_rms > thresh].tolist()
 
     if len(speech_levels) > 4:
-        mean_e = sum(speech_levels) / len(speech_levels)
-        variance = sum((x - mean_e) ** 2 for x in speech_levels) / len(speech_levels)
-        cv = math.sqrt(variance) / (mean_e + 1e-12)  # coefficient of variation
+        mean_e    = float(np.mean(speech_levels))
+        cv        = float(np.std(speech_levels)) / (mean_e + 1e-12)
         consistency = max(0.0, 1.0 - min(1.0, cv * 1.5))
 
         lo, hi = profile['energy_consistency']

@@ -8,6 +8,7 @@ import tkinter as tk
 from tkinter import ttk, filedialog, messagebox
 from tkinter.scrolledtext import ScrolledText
 import threading
+import queue
 import os
 import tempfile
 import shutil
@@ -89,6 +90,11 @@ class AudioFlowApp(tk.Tk):
 
         self.after(1200, self._check_ollama_status)
         self.after(1800, self._check_for_updates)
+
+        # Thread-safe progress queue — background thread puts (fraction, msg),
+        # main thread polls every 50 ms and updates the UI.
+        self._progress_queue = queue.Queue()
+        self._poll_progress()
 
     # ══════════════════════════════════════════════════════════════
     # TITLEBAR
@@ -383,6 +389,26 @@ class AudioFlowApp(tk.Tk):
         self._analyze_btn = PrimaryButton(s4, "ANALYZE RECORDING",
                                           command=self._run_analysis)
         self._analyze_btn.pack(fill="x", pady=(0, 6))
+
+        # Progress bar — directly under Analyze button
+        prog_frame = tk.Frame(s4, bg=SURFACE)
+        prog_frame.pack(fill="x", pady=(0, 6))
+
+        prog_header = tk.Frame(prog_frame, bg=SURFACE)
+        prog_header.pack(fill="x", pady=(0, 3))
+        self._progress_label = tk.Label(prog_header, text="", font=FONT_MONO,
+                                         fg=TEXT_MUTED, bg=SURFACE, anchor="w")
+        self._progress_label.pack(side="left")
+        self._progress_pct = tk.Label(prog_header, text="", font=FONT_MONO,
+                                       fg=YELLOW, bg=SURFACE, anchor="e")
+        self._progress_pct.pack(side="right")
+
+        track = tk.Frame(prog_frame, bg=EDGE_BRIGHT, height=6)
+        track.pack(fill="x")
+        track.pack_propagate(False)
+        self._progress_fill = tk.Frame(track, bg=YELLOW, height=6)
+        self._progress_fill.place(x=0, y=0, relheight=1, relwidth=0)
+
         self._apply_btn = SecondaryButton(s4, "APPLY IN AUDACITY",
                                           command=self._apply_in_audacity)
         self._apply_btn.pack(fill="x")
@@ -390,11 +416,9 @@ class AudioFlowApp(tk.Tk):
 
         tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=6)
 
-        # Progress
+        # Keep LamboProgress for status bar compatibility
         s5 = tk.Frame(left, bg=SURFACE)
-        s5.pack(fill="x", padx=SECTION_PAD)
         self._progress = LamboProgress(s5, bg=SURFACE)
-        self._progress.pack(fill="x")
 
         # ── Right panel ──
         right = tk.Frame(p, bg=CARBON_1)
@@ -574,6 +598,9 @@ class AudioFlowApp(tk.Tk):
         self._tl_end_var.set("")
         self._playhead_frac = 0.33
         self._draw_timeline()
+        self._progress_fill.place(relwidth=0)
+        self._progress_label.config(text="")
+        self._progress_pct.config(text="")
 
     def _run_analysis(self):
         if not self._wav_path:
@@ -645,9 +672,26 @@ class AudioFlowApp(tk.Tk):
             messagebox.showerror("FFmpeg Error", str(e))
             return None
 
+    def _poll_progress(self):
+        """Drain the progress queue on the main thread every 50 ms."""
+        try:
+            while True:
+                fraction, msg = self._progress_queue.get_nowait()
+                self._update_progress(fraction, msg)
+        except queue.Empty:
+            pass
+        self.after(50, self._poll_progress)
+
     def _on_progress(self, fraction, msg):
-        self.after(0, lambda: self._progress.set(fraction, msg))
-        self.after(0, lambda: self._set_status(msg))
+        self._progress_queue.put((fraction, msg))
+
+    def _update_progress(self, fraction, msg):
+        self._progress_fill.place(relwidth=max(0.0, min(1.0, fraction)))
+        self._progress_label.config(text=msg.upper())
+        pct = int(fraction * 100)
+        self._progress_pct.config(text=f"{pct}%" if fraction > 0 else "")
+        self._progress.set(fraction, msg)
+        self._set_status(msg)
 
     def _check_for_updates(self, forced=False):
         if not getattr(sys, "frozen", False):
@@ -801,7 +845,7 @@ class AudioFlowApp(tk.Tk):
         self._issues_badge_var.set(str(n))
 
         self._waveform.load(self.results["samples"], flag_samples)
-        self._progress.set(1.0, "Analysis complete")
+        self._update_progress(1.0, "Analysis complete")
         n_issues = len(self.results["all_edits"])
         self._set_status(f"Done — {n_issues} issues found")
         self._apply_btn.config(state="normal", fg=YELLOW)

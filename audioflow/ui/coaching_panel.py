@@ -167,8 +167,12 @@ class CoachingTabManager:
     def set_results(self, results):
         self.results = results
         self._style_panel.refresh(results)
-        for panel in self._char_panels.values():
+        for cat, panel in self._char_panels.items():
             panel.mark_dirty()
+            # If this category tab is currently active, refresh it now
+            # rather than waiting for the user to switch away and back.
+            if cat.lower() == self._active_sub:
+                panel.refresh_if_dirty()
 
     def _build(self):
         p = self.parent

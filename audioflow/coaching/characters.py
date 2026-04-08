@@ -1153,6 +1153,7 @@ def score_character(results: dict, character_name: str) -> Dict:
     Returns scores, feedback, tips, reference description.
     """
     import math
+    import numpy as np
 
     char = CHARACTER_DB.get(character_name)
     if not char:
@@ -1169,7 +1170,6 @@ def score_character(results: dict, character_name: str) -> Dict:
     feedback = []
 
     def db_to_lin(db): return math.pow(10, db / 20.0)
-    def rms_chunk(s): return math.sqrt(sum(x*x for x in s) / len(s)) if s else 0.0
     def range_score(v, lo, hi):
         """Bell-curve: 100 at midpoint, 60 at edges, drops outside."""
         mid = (lo + hi) / 2.0
@@ -1203,17 +1203,14 @@ def score_character(results: dict, character_name: str) -> Dict:
     # ── Energy Consistency ────────────────────────────────────────
     frame_size = int(sr * 0.1)
     thresh = db_to_lin(benchmarks.get("clarity_floor_db", -36))
-    speech_levels = []
-    for i in range(0, len(samples) - frame_size, frame_size):
-        chunk = samples[i: i + frame_size]
-        level = rms_chunk(chunk)
-        if level > thresh:
-            speech_levels.append(level)
+    arr = np.asarray(samples, dtype=np.float32)
+    n   = (len(arr) // frame_size) * frame_size
+    frame_rms     = np.sqrt(np.mean(arr[:n].reshape(-1, frame_size) ** 2, axis=1))
+    speech_levels = frame_rms[frame_rms > thresh].tolist()
 
     if len(speech_levels) > 4:
-        mean_e = sum(speech_levels) / len(speech_levels)
-        variance = sum((x - mean_e)**2 for x in speech_levels) / len(speech_levels)
-        cv = math.sqrt(variance) / (mean_e + 1e-12)
+        mean_e    = float(np.mean(speech_levels))
+        cv        = float(np.std(speech_levels)) / (mean_e + 1e-12)
         consistency = max(0.0, 1.0 - min(1.0, cv * 1.5))
         lo, hi = benchmarks["energy_consistency"]
         scores["consistency"] = range_score(consistency, lo, hi)

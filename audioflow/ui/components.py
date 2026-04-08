@@ -278,8 +278,8 @@ class WaveformCanvas(tk.Canvas):
         self.bind("<Configure>", lambda e: self._redraw())
 
     def load(self, samples, flags=None):
-        self._samples = samples or []
-        self._flags   = flags   or []
+        self._samples = samples if samples is not None else []
+        self._flags   = flags   if flags   is not None else []
         # Delay redraw so canvas has been laid out and has a real width
         self.after(50, self._redraw)
 
@@ -299,7 +299,7 @@ class WaveformCanvas(tk.Canvas):
         self.create_text(8, 6, text="WAVEFORM", font=FONT_MONO,
                          fill=TEXT_GHOST, anchor="nw")
 
-        if not self._samples:
+        if self._samples is None or len(self._samples) == 0:
             for x in range(0, W, 3):
                 self.create_line(x, mid - 2, x, mid + 2,
                                  fill=EDGE_BRIGHT, width=1)
@@ -329,12 +329,13 @@ class WaveformCanvas(tk.Canvas):
         step = max(1, len(self._samples) // W)
         amp  = (H - 20) / 2
 
+        import numpy as np
         for x in range(W):
             i = x * step
             chunk = self._samples[i: i + step]
-            if not chunk:
+            if len(chunk) == 0:
                 continue
-            peak  = max(abs(s) for s in chunk)
+            peak  = float(np.max(np.abs(chunk)))
             bar_h = max(2, int(peak * amp))
             color = flag_px.get(x, CARBON_5 if x < W * 0.33 else EDGE_BRIGHT)
             self.create_line(x, mid - bar_h, x, mid + bar_h,
