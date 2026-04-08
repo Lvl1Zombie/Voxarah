@@ -39,7 +39,7 @@ from ui.components        import (
 from ui.coaching_panel    import CoachingTabManager
 from ui.compare_panel     import CompareTakesPanel
 
-APP_VERSION = "2.0"
+APP_VERSION = "2.1"
 
 
 def fmt_time(sec):
