@@ -153,8 +153,11 @@ class _Btn(tk.Canvas):
         H = self.winfo_height()
         if W < 4 or H < 4:
             return
-        _rrect(self, 1, 1, W - 1, H - 1, r=self._r,
-               fill=self._cf, outline=self._cb, width=1)
+        # Use sharp rectangles — Tkinter's smooth polygon has no anti-aliasing
+        # and looks pixelated at button sizes. Sharp = crisp.
+        bdr = self._cb if self._cb != self._cf else ""
+        self.create_rectangle(1, 1, W - 1, H - 1,
+                              fill=self._cf, outline=bdr, width=1)
         self.create_text(W // 2, H // 2, text=self._text,
                          font=self._font, fill=self._cfg, anchor="center")
 
@@ -379,24 +382,22 @@ class LamboSlider(tk.Frame):
         my = H // 2
         m  = self._margin()
 
-        # Track (full, dark)
-        _rrect(c, m, my - 2, W - m, my + 2, r=2,
-               fill=EDGE_BRIGHT, outline="")
+        # Track — sharp rectangle, no pixelation
+        c.create_rectangle(m, my - 2, W - m, my + 2,
+                           fill=EDGE_BRIGHT, outline="")
 
         # Fill bar (left of thumb, yellow)
         if tx > m:
-            _rrect(c, m, my - 2, tx, my + 2, r=2,
-                   fill=YELLOW, outline="")
+            c.create_rectangle(m, my - 2, tx, my + 2,
+                               fill=YELLOW, outline="")
 
-        # Thumb body
+        # Thumb — oval renders cleanly; smooth polygon does not
         tx1, tx2 = tx - self._TW // 2, tx + self._TW // 2
         ty1, ty2 = my - self._TH // 2, my + self._TH // 2
-        _rrect(c, tx1, ty1, tx2, ty2, r=3, fill=YELLOW, outline="")
+        c.create_oval(tx1, ty1, tx2, ty2, fill=YELLOW, outline="")
 
-        # Thumb grip lines (3 dark horizontal lines)
-        for dy in (-3, 0, 3):
-            c.create_line(tx1 + 3, my + dy, tx2 - 3, my + dy,
-                          fill=CARBON_2, width=1)
+        # Single center grip line
+        c.create_line(tx1 + 4, my, tx2 - 4, my, fill=CARBON_2, width=1)
 
     def _click(self, e):
         self._drag = True
@@ -462,22 +463,31 @@ class LamboToggle(tk.Frame):
         c  = self._c
         c.delete("all")
         W, H = self._W, self._H
-        # Interpolate track color based on knob position
-        t_norm  = (kx - 2) / max(1, W - self._KW - 4)
-        t_norm  = max(0.0, min(1.0, t_norm))
-        track   = _lerp(EDGE_BRIGHT, YELLOW, t_norm)
-        # Track
-        _rrect(c, 0, 3, W, H - 3, r=4, fill=track, outline="")
-        # Knob
+        # Interpolate track color
+        t_norm = (kx - 2) / max(1, W - self._KW - 4)
+        t_norm = max(0.0, min(1.0, t_norm))
+        track  = _lerp(EDGE_BRIGHT, YELLOW, t_norm)
+
+        # Pill-shaped track — arcs + rectangle (crisp, no smooth polygon)
+        ty1, ty2 = 4, H - 4
+        r = (ty2 - ty1) // 2          # radius = half height of track
+        # Left cap
+        c.create_arc(0, ty1, 2 * r, ty2,
+                     start=90, extent=180, fill=track, outline=track,
+                     style=tk.PIESLICE)
+        # Right cap
+        c.create_arc(W - 2 * r, ty1, W, ty2,
+                     start=270, extent=180, fill=track, outline=track,
+                     style=tk.PIESLICE)
+        # Center fill
+        c.create_rectangle(r, ty1, W - r, ty2, fill=track, outline="")
+
+        # Knob — clean oval
         k = int(kx)
-        knob_fill    = BLACK  if self._var.get() else CARBON_4
-        knob_outline = YELLOW if self._var.get() else EDGE_BRIGHT
-        _rrect(c, k, 1, k + self._KW, H - 1, r=4,
-               fill=knob_fill, outline=knob_outline, width=1)
-        # Yellow accent on top of knob when on
-        if t_norm > 0.5:
-            c.create_line(k + 4, 4, k + self._KW - 4, 4,
-                          fill=YELLOW, width=2)
+        knob_fill    = CARBON_1 if self._var.get() else CARBON_3
+        knob_outline = YELLOW   if self._var.get() else EDGE_BRIGHT
+        c.create_oval(k, 1, k + self._KW, H - 1,
+                      fill=knob_fill, outline=knob_outline, width=1)
 
     def _toggle(self, _=None):
         new_val = not self._var.get()
@@ -734,9 +744,9 @@ class DarkScrollbar(tk.Canvas):
         thumb_y = int(self._lo * H)
         # Track line
         self.create_line(W // 2, 0, W // 2, H, fill=EDGE, width=1)
-        # Rounded thumb
-        _rrect(self, 1, thumb_y, W - 1, thumb_y + thumb_h,
-               r=R_SM, fill=CARBON_6, outline="")
+        # Sharp thumb — cleaner than smooth polygon at narrow widths
+        self.create_rectangle(1, thumb_y, W - 1, thumb_y + thumb_h,
+                              fill=CARBON_6, outline="")
 
     def _on_click(self, e):
         H = self.winfo_height()
