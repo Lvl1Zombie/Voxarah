@@ -23,6 +23,7 @@ except ImportError:
     _PLAYBACK_OK = False
 
 from core.settings        import SettingsManager
+from core.changelog       import CHANGELOG
 from core.analyzer        import AudioAnalyzer, build_cleaned_wav, build_cleaned_samples, build_label_file
 from core.recorder        import VoxRecorder
 from core.ai_coach        import AICoach
@@ -36,6 +37,7 @@ from ui.components        import (
     make_notebook, make_log_text, log_append, LamboProgress, PanelSection
 )
 from ui.coaching_panel    import CoachingTabManager
+from ui.compare_panel     import CompareTakesPanel
 
 APP_VERSION = "2.0"
 
@@ -102,6 +104,7 @@ class AudioFlowApp(tk.Tk):
 
         self.after(1200, self._check_ollama_status)
         self.after(1800, self._check_for_updates)
+        self.after(800,  self._check_patch_notes)
 
         # Thread-safe progress queue — background thread puts (fraction, msg),
         # main thread polls every 50 ms and updates the UI.
@@ -185,6 +188,7 @@ class AudioFlowApp(tk.Tk):
         tabs = [
             ("editor",   "  EDITOR  "),
             ("coaching", "  COACHING  "),
+            ("compare",  "  COMPARE  "),
             ("settings", "  SETTINGS  "),
         ]
 
@@ -233,10 +237,12 @@ class AudioFlowApp(tk.Tk):
 
         self._tab_frames["editor"]   = tk.Frame(self._body, bg=CARBON_1)
         self._tab_frames["coaching"] = tk.Frame(self._body, bg=CARBON_1)
+        self._tab_frames["compare"]  = tk.Frame(self._body, bg=CARBON_1)
         self._tab_frames["settings"] = tk.Frame(self._body, bg=CARBON_1)
 
         self._build_editor_tab()
         self._build_coaching_tab()
+        self._build_compare_tab()
         self._build_settings_tab()
 
         self._switch_tab("editor")
@@ -473,6 +479,14 @@ class AudioFlowApp(tk.Tk):
         self._waveform.after(200, self._waveform._redraw)
         tk.Frame(right, bg=EDGE, height=1).pack(fill="x")
 
+        # ── Pitch strip ──
+        self._pitch_canvas = tk.Canvas(right, bg=CARBON_2, height=72,
+                                       highlightthickness=0, bd=0)
+        self._pitch_canvas.pack(fill="x")
+        self._pitch_canvas.bind("<Configure>", lambda e: self._draw_pitch())
+        self._pitch_canvas.after(300, self._draw_pitch)
+        tk.Frame(right, bg=EDGE, height=1).pack(fill="x")
+
         # ── Playback bar ──
         pb = tk.Frame(right, bg=CARBON_2, height=34)
         pb.pack(fill="x")
@@ -526,6 +540,81 @@ class AudioFlowApp(tk.Tk):
         fc.pack(fill="both", expand=True)
         self._flag_tree = make_flag_tree(fc, bg=CARBON_1)
         self._flag_tree.pack(fill="both", expand=True)
+
+    def _draw_pitch(self):
+        c = self._pitch_canvas
+        c.delete("all")
+        W = c.winfo_width()
+        H = 72
+        if W < 20:
+            c.after(100, self._draw_pitch)
+            return
+
+        c.create_rectangle(0, 0, W, H, fill=CARBON_2, outline="")
+        c.create_text(8, 6, text="PITCH", font=FONT_MONO, fill=TEXT_GHOST, anchor="nw")
+
+        if not self.results or 'pitch_frames' not in self.results:
+            c.create_text(W // 2, H // 2, text="Analyze a recording to see pitch",
+                          font=FONT_MONO, fill=TEXT_GHOST, anchor="center")
+            return
+
+        frames   = self.results['pitch_frames']
+        stats    = self.results.get('pitch_stats', {})
+        duration = self.results['duration']
+        rating   = stats.get('rating', '')
+
+        # Rating badge — top right
+        rating_color = {"EXPRESSIVE": GREEN_OK,
+                        "MODERATE":   YELLOW,
+                        "FLAT":       RED_FLAG}.get(rating, TEXT_GHOST)
+        std_hz = stats.get('std_hz', 0.0)
+        badge  = f"{rating}  ±{std_hz:.0f} Hz" if rating not in ('NO DATA', '') else rating
+        c.create_text(W - 10, 6, text=badge, font=FONT_MONO,
+                      fill=rating_color, anchor="ne")
+
+        voiced = [(f['time'], f['freq'], s)
+                  for f, s in zip(frames, stats.get('frame_scores', []))
+                  if f.get('voiced') and f['freq'] > 0]
+        if len(voiced) < 2:
+            c.create_text(W // 2, H // 2, text="No voiced audio detected",
+                          font=FONT_MONO, fill=TEXT_GHOST, anchor="center")
+            return
+
+        # Y mapping: pitch 70–500 Hz → canvas top–bottom (with margins)
+        F_MIN, F_MAX = 70, 500
+        margin_top, margin_bot = 18, 8
+
+        def hz_to_y(hz):
+            hz = max(F_MIN, min(F_MAX, hz))
+            return int(margin_top + (1.0 - (hz - F_MIN) / (F_MAX - F_MIN))
+                       * (H - margin_top - margin_bot))
+
+        # Playhead (drawn first so contour renders on top)
+        ph_x = int(W * self._playhead_frac) if hasattr(self, '_playhead_frac') else 0
+        c.create_line(ph_x, 0, ph_x, H, fill=YELLOW, width=2, tags="pitch_playhead")
+
+        # Draw faint horizontal grid lines at 100, 200, 300 Hz
+        for grid_hz in (100, 200, 300):
+            gy = hz_to_y(grid_hz)
+            c.create_line(0, gy, W, gy, fill=EDGE_BRIGHT, width=1, dash=(2, 4))
+            c.create_text(W - 4, gy - 1, text=f"{grid_hz}", font=("Consolas", 7),
+                          fill="#333333", anchor="e")
+
+        # Color helper: score 0→1 maps red → yellow → green
+        def score_color(score):
+            if score >= 0.7:   return "#4caf50"   # green  — expressive
+            elif score >= 0.35: return YELLOW
+            else:               return RED_FLAG    # flat
+
+        # Draw connected line segments, colored by per-frame score
+        prev_x = prev_y = None
+        for time, freq, score in voiced:
+            x = int(time / duration * W)
+            y = hz_to_y(freq)
+            if prev_x is not None:
+                c.create_line(prev_x, prev_y, x, y,
+                              fill=score_color(score), width=2)
+            prev_x, prev_y = x, y
 
     def _draw_stat_cards(self):
         """Draw stat cards directly on Canvas — fonts always work on Canvas."""
@@ -629,6 +718,7 @@ class AudioFlowApp(tk.Tk):
         for key in self._stat_values:
             self._stat_values[key] = "—"
         self._draw_stat_cards()
+        self._draw_pitch()
         self._flag_tree.delete_all()
         self._waveform.load([], [])
         self._issues_badge_var.set("0")
@@ -849,6 +939,7 @@ class AudioFlowApp(tk.Tk):
         self._stat_values["mouth_noise_count"] = str(stats["mouth_noise_count"])
         self._stat_values["time_saved"]        = f"{stats['time_saved']:.1f}s"
         self._draw_stat_cards()
+        self._draw_pitch()
         self._flag_tree.delete_all()
 
         # Cache cleaned samples and enable the CLEANED playback button
@@ -895,7 +986,7 @@ class AudioFlowApp(tk.Tk):
         self._set_status(f"Done — {n_issues} issues found")
 
         if hasattr(self, "_coaching_manager"):
-            self._coaching_manager.set_results(self.results)
+            self._coaching_manager.set_results(self.results, self._wav_path)
 
     # ── Playback ──────────────────────────────────────────────────
 
@@ -938,6 +1029,18 @@ class AudioFlowApp(tk.Tk):
         self._play_timer_var.set("0:00.0")
         self._playback_tick()
 
+    def _move_playheads(self, fraction: float):
+        self._waveform.set_playhead(fraction)
+        W = self._pitch_canvas.winfo_width()
+        H = 72
+        px = int(W * fraction)
+        existing = self._pitch_canvas.find_withtag("pitch_playhead")
+        if existing:
+            self._pitch_canvas.coords(existing[0], px, 0, px, H)
+        else:
+            self._pitch_canvas.create_line(px, 0, px, H,
+                                           fill=YELLOW, width=2, tags="pitch_playhead")
+
     def _stop_playback(self):
         if _PLAYBACK_OK:
             _sd.stop()
@@ -947,18 +1050,18 @@ class AudioFlowApp(tk.Tk):
         if hasattr(self, "_play_timer_var"):
             self._play_timer_var.set("")
         if hasattr(self, "_waveform"):
-            self._waveform.set_playhead(0.0)
+            self._move_playheads(0.0)
 
     def _playback_tick(self):
         if not self._play_active:
             return
         elapsed = time.monotonic() - self._play_start_time
         if elapsed >= self._play_duration or not _sd.get_stream().active:
-            self._waveform.set_playhead(1.0)
+            self._move_playheads(1.0)
             self._stop_playback()
             return
         frac = elapsed / self._play_duration
-        self._waveform.set_playhead(frac)
+        self._move_playheads(frac)
         m = int(elapsed // 60)
         s = elapsed % 60
         dm = int(self._play_duration // 60)
@@ -1003,6 +1106,14 @@ class AudioFlowApp(tk.Tk):
             self._tab_frames["coaching"], self.settings,
             ai_coach=self.ai_coach, voice_engine=self.voice)
 
+    # ══════════════════════════════════════════════════════════════
+    # TAB 3 — COMPARE
+    # ══════════════════════════════════════════════════════════════
+
+    def _build_compare_tab(self):
+        self._compare_panel = CompareTakesPanel(
+            self._tab_frames["compare"], self.settings,
+            ensure_wav_fn=self._ensure_wav)
 
     # ══════════════════════════════════════════════════════════════
     # TAB 4 — SETTINGS
@@ -1136,6 +1247,8 @@ class AudioFlowApp(tk.Tk):
                       command=self._save_settings).pack(side="left", padx=(0,8))
         SecondaryButton(btn_row, "RESET DEFAULTS",
                         command=self._reset_settings).pack(side="left")
+        SecondaryButton(btn_row, "WHAT'S NEW",
+                        command=self._show_patch_notes).pack(side="right")
 
     def _save_settings(self):
         self.settings.save()
@@ -1162,6 +1275,134 @@ class AudioFlowApp(tk.Tk):
         if messagebox.askyesno("Reset", "Reset all settings to defaults?"):
             self.settings.reset_to_defaults()
             self._set_status("Settings reset")
+
+    # ── Patch Notes ───────────────────────────────────────────────
+
+    def _check_patch_notes(self):
+        """Auto-show patch notes once when a new version is first launched."""
+        last_seen = self.settings.get("last_seen_version", "")
+        if last_seen != APP_VERSION:
+            self.settings.set("last_seen_version", APP_VERSION)
+            self.settings.save()
+            self._show_patch_notes(highlight_version=APP_VERSION)
+
+    def _show_patch_notes(self, highlight_version=None):
+        """Open the patch notes modal."""
+        win = tk.Toplevel(self)
+        win.title("What's New — Voxarah")
+        win.configure(bg=BLACK)
+        win.resizable(False, False)
+        win.grab_set()
+
+        # Size and center
+        W, H = 620, 560
+        self.update_idletasks()
+        x = self.winfo_x() + (self.winfo_width()  - W) // 2
+        y = self.winfo_y() + (self.winfo_height() - H) // 2
+        win.geometry(f"{W}x{H}+{x}+{y}")
+
+        # Title bar stripe
+        tk.Frame(win, bg=YELLOW, height=2).pack(fill="x")
+
+        hdr = tk.Frame(win, bg=BLACK, height=52)
+        hdr.pack(fill="x")
+        hdr.pack_propagate(False)
+        tk.Frame(hdr, bg=YELLOW, width=3).pack(side="left", fill="y")
+        tk.Label(hdr, text="WHAT'S NEW", font=("Segoe UI", 14, "bold"),
+                 fg=TEXT, bg=BLACK, padx=16).pack(side="left")
+        tk.Label(hdr, text=f"VOXARAH  v{APP_VERSION}",
+                 font=FONT_MONO, fg=TEXT_GHOST, bg=BLACK,
+                 padx=12).pack(side="right")
+
+        tk.Frame(win, bg=EDGE, height=1).pack(fill="x")
+
+        # Scrollable content
+        from ui.components import DarkScrollbar
+        body_wrap = tk.Frame(win, bg=CARBON_1)
+        body_wrap.pack(fill="both", expand=True)
+
+        canvas = tk.Canvas(body_wrap, bg=CARBON_1, highlightthickness=0)
+        sb = DarkScrollbar(body_wrap, command=canvas.yview)
+        canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        canvas.pack(side="left", fill="both", expand=True)
+
+        inner = tk.Frame(canvas, bg=CARBON_1)
+        win_id = canvas.create_window((0, 0), window=inner, anchor="nw")
+        inner.bind("<Configure>", lambda e: canvas.configure(
+            scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>",
+                    lambda e: canvas.itemconfig(win_id, width=e.width))
+
+        # Mouse wheel scroll
+        def _scroll(e):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), "units")
+        canvas.bind_all("<MouseWheel>", _scroll)
+        win.bind("<Destroy>", lambda e: canvas.unbind_all("<MouseWheel>"))
+
+        # Render changelog entries
+        for entry in CHANGELOG:
+            ver   = entry["version"]
+            is_new = (ver == highlight_version or
+                      (highlight_version is None and ver == CHANGELOG[0]["version"]))
+
+            # Version header
+            ver_hdr = tk.Frame(inner, bg=CARBON_2)
+            ver_hdr.pack(fill="x", padx=16, pady=(14, 0))
+            tk.Frame(ver_hdr, bg=YELLOW if is_new else EDGE_BRIGHT,
+                     width=3).pack(side="left", fill="y")
+
+            hdr_inner = tk.Frame(ver_hdr, bg=CARBON_2)
+            hdr_inner.pack(side="left", fill="both", expand=True,
+                           padx=12, pady=8)
+            ver_row = tk.Frame(hdr_inner, bg=CARBON_2)
+            ver_row.pack(fill="x")
+            tk.Label(ver_row, text=f"v{ver}", font=("Consolas", 13, "bold"),
+                     fg=YELLOW if is_new else TEXT_DIM,
+                     bg=CARBON_2).pack(side="left")
+            if is_new:
+                tk.Label(ver_row, text=" NEW ", font=FONT_BADGE,
+                         fg=BLACK, bg=YELLOW, padx=4).pack(side="left", padx=(8, 0))
+            tk.Label(ver_row, text=entry.get("date", ""),
+                     font=FONT_MONO, fg=TEXT_GHOST,
+                     bg=CARBON_2).pack(side="right")
+
+            # Feature list
+            feat_frame = tk.Frame(inner, bg=CARBON_1)
+            feat_frame.pack(fill="x", padx=16, pady=(0, 4))
+
+            for title, desc in entry["features"]:
+                row_f = tk.Frame(feat_frame, bg=CARBON_1)
+                row_f.pack(fill="x", pady=4)
+
+                # Yellow bullet
+                tk.Label(row_f, text="▸", font=("Consolas", 10),
+                         fg=YELLOW if is_new else TEXT_GHOST,
+                         bg=CARBON_1).pack(side="left", anchor="n",
+                                           padx=(8, 0), pady=3)
+
+                text_col = tk.Frame(row_f, bg=CARBON_1)
+                text_col.pack(side="left", fill="x", expand=True,
+                              padx=(6, 16))
+                tk.Label(text_col, text=title,
+                         font=("Segoe UI", 10, "bold"),
+                         fg=TEXT if is_new else TEXT_DIM,
+                         bg=CARBON_1, anchor="w").pack(fill="x")
+                tk.Label(text_col, text=desc,
+                         font=FONT_SMALL, fg=TEXT_MUTED,
+                         bg=CARBON_1, anchor="w", justify="left",
+                         wraplength=520).pack(fill="x")
+
+            tk.Frame(inner, bg=EDGE, height=1).pack(fill="x", padx=16,
+                                                      pady=(6, 0))
+
+        # Close button
+        tk.Frame(win, bg=EDGE, height=1).pack(fill="x", side="bottom")
+        btn_bar = tk.Frame(win, bg=BLACK, height=44)
+        btn_bar.pack(fill="x", side="bottom")
+        btn_bar.pack_propagate(False)
+        PrimaryButton(btn_bar, "CLOSE",
+                      command=win.destroy).pack(side="right", padx=12, pady=6)
 
     def _log(self, msg):
         print(msg)

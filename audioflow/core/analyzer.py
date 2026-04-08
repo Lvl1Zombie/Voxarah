@@ -461,6 +461,74 @@ class AudioAnalyzer:
 
         return unclear[:10]
 
+    # ── Pitch Detection ───────────────────────────────────────────
+
+    def detect_pitch(self, samples, sr: int,
+                     on_progress=None) -> List[Dict]:
+        """
+        Detect fundamental frequency frame-by-frame via autocorrelation (FFT).
+        Returns list of {time, freq, voiced} — freq=0 for unvoiced frames.
+
+        Frame: 30 ms,  Hop: 10 ms,  Range: 70–500 Hz (covers all voice types).
+        Voiced/unvoiced gated by energy AND autocorrelation confidence > 0.28.
+        """
+        frame_ms   = 30
+        hop_ms     = 10
+        f_min, f_max = 70, 500
+
+        frame_size = max(1, int(sr * frame_ms / 1000))
+        hop_size   = max(1, int(sr * hop_ms   / 1000))
+        lag_min    = max(1, int(sr / f_max))
+        lag_max    = int(sr / f_min)
+
+        arr          = np.asarray(samples, dtype=np.float32)
+        energy_floor = db_to_linear(self.settings.get('silence_threshold_db', -40)) * 2.5
+        hann         = np.hanning(frame_size).astype(np.float32)
+
+        n_frames = max(0, (len(arr) - frame_size) // hop_size)
+        pitch_frames: list[dict] = []
+
+        for i in range(n_frames):
+            t     = i * hop_size / sr
+            start = i * hop_size
+            frame = arr[start: start + frame_size]
+
+            # Energy gate
+            rms = float(np.sqrt(np.mean(frame ** 2)))
+            if rms < energy_floor:
+                pitch_frames.append({'time': t, 'freq': 0.0, 'voiced': False})
+                continue
+
+            # Autocorrelation via FFT (fast, no scipy needed)
+            windowed = frame * hann
+            n        = len(windowed)
+            fft_r    = np.fft.rfft(windowed, n=2 * n)
+            acf      = np.fft.irfft(fft_r * np.conj(fft_r))[:n].real
+
+            if lag_max >= n or acf[0] < 1e-10:
+                pitch_frames.append({'time': t, 'freq': 0.0, 'voiced': False})
+                continue
+
+            # Find best peak in voiced range
+            search     = acf[lag_min: lag_max]
+            peak_idx   = int(np.argmax(search))
+            peak_lag   = peak_idx + lag_min
+            confidence = acf[peak_lag] / acf[0]
+
+            if confidence >= 0.28:
+                pitch_frames.append({'time': t,
+                                     'freq': float(sr / peak_lag),
+                                     'voiced': True})
+            else:
+                pitch_frames.append({'time': t, 'freq': 0.0, 'voiced': False})
+
+            if on_progress and n_frames > 0:
+                on_progress((i + 1) / n_frames)
+
+        if on_progress:
+            on_progress(1.0)
+        return pitch_frames
+
     # ── Full Analysis Run ──────────────────────────────────────────
 
     def analyze(self, filepath: str,
@@ -476,13 +544,14 @@ class AudioAnalyzer:
                 progress_callback(pct, msg)
 
         # Phase budget (must sum to 1.0):
-        #   0.00–0.05  startup
-        #   0.05–0.17  file read        (+0.12)
-        #   0.17–0.37  silence scan     (+0.20)
-        #   0.37–0.57  stutter scan     (+0.20)
-        #   0.57–0.69  unclear scan     (+0.12)
-        #   0.69–0.82  breath scan      (+0.13)
-        #   0.82–0.95  mouth noise scan (+0.13)
+        #   0.00–0.04  startup
+        #   0.04–0.14  file read        (+0.10)
+        #   0.14–0.30  silence scan     (+0.16)
+        #   0.30–0.48  stutter scan     (+0.18)
+        #   0.48–0.57  unclear scan     (+0.09)
+        #   0.57–0.65  breath scan      (+0.08)
+        #   0.65–0.72  mouth noise scan (+0.07)
+        #   0.72–0.95  pitch scan       (+0.23)
         #   0.95–1.00  stats + done     (+0.05)
 
         def _make_prog(label, base, span):
@@ -495,15 +564,15 @@ class AudioAnalyzer:
                     prog(overall, label)
             return _cb
 
-        prog(0.05, "Reading audio file…")
+        prog(0.04, "Reading audio file…")
         samples, sr = read_wav_mono(filepath,
-                                    on_progress=_make_prog("Reading audio file…", 0.05, 0.12))
+                                    on_progress=_make_prog("Reading audio file…", 0.04, 0.10))
         duration = len(samples) / sr
 
-        prog(0.17, "Detecting silences…")
+        prog(0.14, "Detecting silences…")
         silence_regions = self.find_silence_regions(
             samples, sr,
-            on_progress=_make_prog("Detecting silences…", 0.17, 0.20))
+            on_progress=_make_prog("Detecting silences…", 0.14, 0.16))
 
         long_pauses = [r for r in silence_regions
                        if r['duration'] > self.settings.get('max_pause_duration', 1.0)]
@@ -518,41 +587,47 @@ class AudioAnalyzer:
             for p in long_pauses
         ]
 
-        prog(0.37, "Scanning for stutters…")
+        prog(0.30, "Scanning for stutters…")
         stutters = []
         if self.settings.get('detect_stutters', True):
             stutters = self.detect_stutters(
                 samples, sr,
-                on_progress=_make_prog("Scanning for stutters…", 0.37, 0.20))
+                on_progress=_make_prog("Scanning for stutters…", 0.30, 0.18))
             for s in stutters:
                 s['type'] = 'stutter'
 
-        prog(0.57, "Checking for unclear sections…")
+        prog(0.48, "Checking for unclear sections…")
         unclear = []
         if self.settings.get('detect_unclear', True):
             unclear = self.detect_unclear(
                 samples, sr,
-                on_progress=_make_prog("Checking for unclear sections…", 0.57, 0.12))
+                on_progress=_make_prog("Checking for unclear sections…", 0.48, 0.09))
             for u in unclear:
                 u['type'] = 'unclear'
 
-        prog(0.69, "Scanning for breaths…")
+        prog(0.57, "Scanning for breaths…")
         breaths = []
         if self.settings.get('detect_breaths', True):
             breaths = self.detect_breaths(
                 samples, sr,
-                on_progress=_make_prog("Scanning for breaths…", 0.69, 0.13))
+                on_progress=_make_prog("Scanning for breaths…", 0.57, 0.08))
             for b in breaths:
                 b['type'] = 'breath'
 
-        prog(0.82, "Scanning for mouth noises…")
+        prog(0.65, "Scanning for mouth noises…")
         mouth_noises = []
         if self.settings.get('detect_mouth_noises', True):
             mouth_noises = self.detect_mouth_noises(
                 samples, sr,
-                on_progress=_make_prog("Scanning for mouth noises…", 0.82, 0.13))
+                on_progress=_make_prog("Scanning for mouth noises…", 0.65, 0.07))
             for m in mouth_noises:
                 m['type'] = 'mouth_noise'
+
+        prog(0.72, "Analyzing pitch…")
+        pitch_frames = self.detect_pitch(
+            samples, sr,
+            on_progress=_make_prog("Analyzing pitch…", 0.72, 0.23))
+        pitch_stats = _compute_pitch_stats(pitch_frames)
 
         prog(0.95, "Computing statistics…")
 
@@ -573,6 +648,8 @@ class AudioAnalyzer:
             'unclear':         unclear,
             'breaths':         breaths,
             'mouth_noises':    mouth_noises,
+            'pitch_frames':    pitch_frames,
+            'pitch_stats':     pitch_stats,
             'all_edits':       all_edits,
             'stats': {
                 'duration':           duration,
@@ -585,6 +662,67 @@ class AudioAnalyzer:
                 'total_flags':        len(stutters) + len(unclear) + len(breaths) + len(mouth_noises),
             },
         }
+
+
+# ── Pitch Stats ──────────────────────────────────────────────────────────────
+
+def _compute_pitch_stats(pitch_frames: list) -> dict:
+    """
+    Summarise pitch_frames into coaching-relevant metrics.
+    Rating thresholds (std dev of Hz):
+      EXPRESSIVE  ≥ 22 Hz  (~2.5 semitones at 150 Hz average)
+      MODERATE    ≥ 10 Hz
+      FLAT        <  10 Hz
+    Also computes per-frame variance scores (0–1) for waveform coloring.
+    """
+    voiced = [f['freq'] for f in pitch_frames if f.get('voiced') and f['freq'] > 0]
+    if len(voiced) < 10:
+        return {'mean_hz': 0.0, 'range_hz': 0.0, 'std_hz': 0.0,
+                'voiced_pct': 0.0, 'rating': 'NO DATA',
+                'frame_scores': [0.0] * len(pitch_frames)}
+
+    arr        = np.array(voiced, dtype=np.float32)
+    mean_hz    = float(np.mean(arr))
+    range_hz   = float(np.max(arr) - np.min(arr))
+    std_hz     = float(np.std(arr))
+    voiced_pct = len(voiced) / len(pitch_frames) * 100.0
+
+    if std_hz >= 22:
+        rating = 'EXPRESSIVE'
+    elif std_hz >= 10:
+        rating = 'MODERATE'
+    else:
+        rating = 'FLAT'
+
+    # Rolling variance score per frame (window ±1 s worth of voiced frames)
+    # Score 0 = flat, 1 = very expressive — used for coloring the contour
+    window = 50   # ~50 voiced frames ≈ 1 s at 10 ms hop
+    voiced_only = np.array([f['freq'] for f in pitch_frames
+                             if f.get('voiced') and f['freq'] > 0], dtype=np.float32)
+    scores_voiced: list[float] = []
+    for i in range(len(voiced_only)):
+        lo = max(0, i - window // 2)
+        hi = min(len(voiced_only), i + window // 2 + 1)
+        local_std = float(np.std(voiced_only[lo:hi]))
+        scores_voiced.append(min(1.0, local_std / 22.0))
+
+    vi = 0
+    frame_scores: list[float] = []
+    for f in pitch_frames:
+        if f.get('voiced') and f['freq'] > 0:
+            frame_scores.append(scores_voiced[vi])
+            vi += 1
+        else:
+            frame_scores.append(0.0)
+
+    return {
+        'mean_hz':     mean_hz,
+        'range_hz':    range_hz,
+        'std_hz':      std_hz,
+        'voiced_pct':  voiced_pct,
+        'rating':      rating,
+        'frame_scores': frame_scores,
+    }
 
 
 # ── Output: Cleaned Samples ──────────────────────────────────────────────────

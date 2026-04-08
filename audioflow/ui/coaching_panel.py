@@ -10,6 +10,7 @@ from coaching.characters import (
     CATEGORIES, CATEGORY_EMOJIS, CHARACTER_DB
 )
 from coaching.profiles import score_recording, get_all_profiles, get_profile_info
+from core.history import save_session, load_history, build_record
 from ui.design import *
 
 DIFF_COLORS = {
@@ -164,9 +165,16 @@ class CoachingTabManager:
         self.voice    = voice_engine
         self._build()
 
-    def set_results(self, results):
-        self.results = results
-        self._style_panel.refresh(results)
+    def set_results(self, results, filename=None):
+        self.results  = results
+        self._filename = filename
+        report = self._style_panel.refresh(results)
+        if report and results:
+            rec = build_record(filename or "", self._style_panel._profile_var.get(),
+                               report, results)
+            save_session(rec)
+            if hasattr(self, "_history_panel"):
+                self._history_panel.refresh()
         for cat, panel in self._char_panels.items():
             panel.mark_dirty()
             # If this category tab is currently active, refresh it now
@@ -190,7 +198,7 @@ class CoachingTabManager:
         all_tabs = [("style", f"  \U0001f399  Style  ")] + [
             (cat.lower(), f"  {CATEGORY_EMOJIS.get(cat, '')}  {cat}  ")
             for cat in get_all_categories()
-        ]
+        ] + [("history", "  \U0001f4c8  History  ")]
 
         for key, label in all_tabs:
             wrap = tk.Frame(tabbar, bg=BLACK)
@@ -224,6 +232,11 @@ class CoachingTabManager:
                                   self.ai_coach, self.voice)
             self._char_panels[cat] = panel
 
+        # History tab
+        history_frame = tk.Frame(body, bg=CARBON_1)
+        self._sub_frames["history"] = history_frame
+        self._history_panel = HistoryPanel(history_frame)
+
         self._switch("style")
 
     def _switch(self, key):
@@ -248,6 +261,9 @@ class CoachingTabManager:
             if cat.lower() == key:
                 panel.refresh_if_dirty()
                 break
+
+        if key == "history" and hasattr(self, "_history_panel"):
+            self._history_panel.refresh()
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -317,7 +333,8 @@ class StyleCoachingPanel:
                           ("stutters",     "Delivery"),
                           ("pause_length", "Pause Length"),
                           ("consistency",  "Consistency"),
-                          ("clarity",      "Clarity")]:
+                          ("clarity",      "Clarity"),
+                          ("pitch",        "Pitch")]:
             r = tk.Frame(dims_f, bg=BG)
             r.pack(fill="x", pady=3)
             tk.Label(r, text=lbl.upper(), font=FONT_MONO, fg=TEXT_MUTED,
@@ -410,6 +427,7 @@ class StyleCoachingPanel:
         self._tips_text.config(state="disabled")
 
         self._last_report = report
+        return report
 
     def _get_ai_coaching(self):
         if not self.ai_coach or not self._last_report:
@@ -501,7 +519,8 @@ class StyleCoachingPanel:
                           ("stutters",     "Delivery"),
                           ("pause_length", "Pause Length"),
                           ("consistency",  "Consistency"),
-                          ("clarity",      "Clarity")]:
+                          ("clarity",      "Clarity"),
+                          ("pitch",        "Pitch")]:
             r = tk.Frame(dims_f, bg=BG)
             r.pack(fill="x", pady=3)
             tk.Label(r, text=lbl.upper(), font=FONT_MONO, fg=TEXT_MUTED,
@@ -892,3 +911,305 @@ class CategoryPanel:
     def _stop_speaking(self):
         if self.voice: self.voice.stop()
         self._ai_status_var.set("READY")
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HistoryPanel
+# ─────────────────────────────────────────────────────────────────────────────
+
+class HistoryPanel:
+    def __init__(self, parent):
+        self.parent   = parent
+        self._history = []
+        self._build()
+        self.refresh()
+
+    def refresh(self):
+        self._history = load_history()
+        self._render()
+
+    # ── Build ─────────────────────────────────────────────────────
+
+    def _build(self):
+        p  = self.parent
+        BG = CARBON_1
+
+        # Summary strip
+        strip = tk.Frame(p, bg=CARBON_2, height=44)
+        strip.pack(fill="x")
+        strip.pack_propagate(False)
+        tk.Frame(strip, bg=YELLOW, width=3).pack(side="left", fill="y")
+
+        self._best_var   = tk.StringVar(value="BEST  —")
+        self._latest_var = tk.StringVar(value="LATEST  —")
+        self._trend_var  = tk.StringVar(value="TREND  —")
+        self._trend_lbl  = None
+
+        for var in (self._best_var, self._latest_var):
+            tk.Label(strip, textvariable=var, font=FONT_MONO,
+                     fg=TEXT, bg=CARBON_2, padx=20).pack(side="left")
+            tk.Frame(strip, bg=EDGE, width=1).pack(side="left", fill="y", pady=6)
+
+        self._trend_lbl = tk.Label(strip, textvariable=self._trend_var,
+                                    font=("Consolas", 13, "bold"),
+                                    fg=YELLOW, bg=CARBON_2, padx=20)
+        self._trend_lbl.pack(side="left")
+
+        tk.Frame(p, bg=EDGE, height=1).pack(fill="x")
+
+        # Body: list left + chart right
+        body = tk.Frame(p, bg=BG)
+        body.pack(fill="both", expand=True)
+
+        # Left — session list
+        left = tk.Frame(body, bg=CARBON_2, width=290)
+        left.pack(side="left", fill="y")
+        left.pack_propagate(False)
+        tk.Frame(left, bg=EDGE, width=1).pack(side="right", fill="y")
+
+        tk.Label(left, text="SESSIONS", font=FONT_MONO,
+                 fg=YELLOW, bg=CARBON_2, padx=12, pady=8,
+                 anchor="w").pack(fill="x")
+        tk.Frame(left, bg=YELLOW, height=1).pack(fill="x")
+
+        from ui.components import DarkScrollbar
+        list_wrap = tk.Frame(left, bg=CARBON_2)
+        list_wrap.pack(fill="both", expand=True)
+
+        self._list_canvas = tk.Canvas(list_wrap, bg=CARBON_2, highlightthickness=0)
+        sb = DarkScrollbar(list_wrap, command=self._list_canvas.yview)
+        self._list_canvas.configure(yscrollcommand=sb.set)
+        sb.pack(side="right", fill="y")
+        self._list_canvas.pack(side="left", fill="both", expand=True)
+
+        self._list_inner = tk.Frame(self._list_canvas, bg=CARBON_2)
+        self._list_win = self._list_canvas.create_window(
+            (0, 0), window=self._list_inner, anchor="nw")
+        self._list_inner.bind("<Configure>", self._on_list_resize)
+        self._list_canvas.bind("<Configure>",
+                               lambda e: self._list_canvas.itemconfig(
+                                   self._list_win, width=e.width))
+
+        # Right — chart area
+        right = tk.Frame(body, bg=BG)
+        right.pack(side="left", fill="both", expand=True, padx=16, pady=12)
+
+        tk.Label(right, text="OVERALL SCORE TREND", font=FONT_MONO,
+                 fg=TEXT_GHOST, bg=BG, anchor="w").pack(fill="x", pady=(0, 6))
+
+        self._chart = tk.Canvas(right, bg=CARBON_2, highlightthickness=1,
+                                 highlightbackground=EDGE_BRIGHT)
+        self._chart.pack(fill="both", expand=True)
+        self._chart.bind("<Configure>", lambda e: self._draw_chart())
+
+        tk.Label(right, text="DIMENSIONS — LAST 10 SESSIONS",
+                 font=FONT_MONO, fg=TEXT_GHOST, bg=BG,
+                 anchor="w").pack(fill="x", pady=(10, 4))
+
+        self._spark_frame = tk.Frame(right, bg=BG)
+        self._spark_frame.pack(fill="x")
+
+    def _on_list_resize(self, _=None):
+        self._list_canvas.configure(
+            scrollregion=self._list_canvas.bbox("all"))
+
+    # ── Render ────────────────────────────────────────────────────
+
+    def _render(self):
+        h = self._history
+
+        if not h:
+            self._best_var.set("BEST  —")
+            self._latest_var.set("LATEST  —")
+            self._trend_var.set("TREND  —")
+            if self._trend_lbl:
+                self._trend_lbl.config(fg=TEXT_GHOST)
+        else:
+            best   = max(s["overall"] for s in h)
+            latest = h[-1]
+            if len(h) >= 2:
+                delta = h[-1]["overall"] - h[-2]["overall"]
+                arrow, col = ("↑", GREEN_OK) if delta > 0 else \
+                             ("↓", RED_FLAG) if delta < 0 else ("→", YELLOW)
+            else:
+                arrow, col = ("→", YELLOW)
+            self._best_var.set(f"BEST  {best}")
+            self._latest_var.set(f"LATEST  {latest['overall']}  {latest['grade']}")
+            self._trend_var.set(f"{arrow}")
+            if self._trend_lbl:
+                self._trend_lbl.config(fg=col)
+
+        for w in self._list_inner.winfo_children():
+            w.destroy()
+
+        for rec in reversed(h):
+            self._add_row(rec)
+
+        self._on_list_resize()
+        self._draw_chart()
+        self._draw_sparklines()
+
+    def _add_row(self, rec):
+        sc  = rec.get("overall", 0)
+        col = score_color(sc)
+
+        row = tk.Frame(self._list_inner, bg=CARBON_2, cursor="hand2")
+        row.pack(fill="x")
+
+        accent = tk.Frame(row, bg=col, width=3)
+        accent.pack(side="left", fill="y")
+
+        inner = tk.Frame(row, bg=CARBON_2)
+        inner.pack(side="left", fill="x", expand=True, padx=(8, 6), pady=5)
+
+        tk.Label(inner, text=rec.get("date", ""), font=("Consolas", 8),
+                 fg=TEXT_GHOST, bg=CARBON_2, anchor="w").pack(fill="x")
+        tk.Label(inner, text=rec.get("filename", ""), font=FONT_BODY,
+                 fg=TEXT, bg=CARBON_2, anchor="w").pack(fill="x")
+        tk.Label(inner, text=rec.get("profile", ""), font=("Consolas", 8),
+                 fg=TEXT_MUTED, bg=CARBON_2, anchor="w").pack(fill="x")
+
+        score_lbl = tk.Label(row, text=f"{sc}\n{rec.get('grade', '')}",
+                              font=("Consolas", 10, "bold"), fg=col,
+                              bg=CARBON_2, padx=10, justify="center")
+        score_lbl.pack(side="right", pady=5)
+
+        tk.Frame(self._list_inner, bg=EDGE, height=1).pack(fill="x")
+
+        for w in [row, inner, accent, score_lbl]:
+            w.bind("<Enter>", lambda e, r=row: self._hover(r, True))
+            w.bind("<Leave>", lambda e, r=row: self._hover(r, False))
+
+    def _hover(self, row, entering):
+        bg = CARBON_3 if entering else CARBON_2
+        for w in [row] + list(row.winfo_children()):
+            try:
+                w.config(bg=bg)
+                for c in w.winfo_children():
+                    c.config(bg=bg)
+            except Exception:
+                pass
+
+    # ── Chart ─────────────────────────────────────────────────────
+
+    def _draw_chart(self):
+        c = self._chart
+        c.delete("all")
+        c.update_idletasks()
+        W = c.winfo_width()
+        H = c.winfo_height()
+        if W < 10 or H < 10:
+            return
+
+        PAD_L, PAD_R = 36, 16
+        PAD_T, PAD_B = 14, 26
+
+        h = self._history[-50:]
+
+        def y_of(score):
+            return PAD_T + (100 - score) / 100 * (H - PAD_T - PAD_B)
+
+        c.create_rectangle(PAD_L, PAD_T, W - PAD_R, H - PAD_B,
+                            fill=CARBON_2, outline="")
+        c.create_rectangle(PAD_L, y_of(80), W - PAD_R, y_of(0),
+                            fill="#0a1a0a", outline="")
+        c.create_rectangle(PAD_L, y_of(60), W - PAD_R, y_of(0),
+                            fill="#111500", outline="")
+
+        for score in (0, 60, 80, 100):
+            y = y_of(score)
+            c.create_line(PAD_L, y, W - PAD_R, y,
+                          fill=EDGE_BRIGHT, dash=(4, 4))
+            c.create_text(PAD_L - 4, y, text=str(score),
+                          font=("Consolas", 7), fill=TEXT_GHOST, anchor="e")
+
+        if not h:
+            c.create_text(W // 2, H // 2,
+                          text="Analyze a recording to begin tracking.",
+                          font=FONT_MONO, fill=TEXT_GHOST, justify="center")
+            return
+
+        n = len(h)
+        def x_of(i):
+            if n == 1:
+                return (PAD_L + W - PAD_R) / 2
+            return PAD_L + i / (n - 1) * (W - PAD_L - PAD_R)
+
+        pts = [(x_of(i), y_of(rec["overall"])) for i, rec in enumerate(h)]
+
+        for i in range(len(pts) - 1):
+            col = score_color(h[i + 1]["overall"])
+            c.create_line(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1],
+                          fill=col, width=2)
+
+        for i, (x, y) in enumerate(pts):
+            col = score_color(h[i]["overall"])
+            c.create_oval(x - 3, y - 3, x + 3, y + 3,
+                          fill=col, outline=BLACK)
+
+        c.create_text(PAD_L, H - PAD_B + 10,
+                      text=h[0]["date"][:10],
+                      font=("Consolas", 7), fill=TEXT_GHOST, anchor="w")
+        if n > 1:
+            c.create_text(W - PAD_R, H - PAD_B + 10,
+                          text=h[-1]["date"][:10],
+                          font=("Consolas", 7), fill=TEXT_GHOST, anchor="e")
+
+    # ── Sparklines ────────────────────────────────────────────────
+
+    def _draw_sparklines(self):
+        for w in self._spark_frame.winfo_children():
+            w.destroy()
+
+        h = self._history[-10:]
+        if not h:
+            return
+
+        dims = [("pause_ratio", "Pacing"), ("stutters", "Delivery"),
+                ("pause_length", "Pause"), ("consistency", "Consist."),
+                ("clarity", "Clarity"), ("pitch", "Pitch")]
+
+        for key, lbl in dims:
+            scores = [rec.get("scores", {}).get(key, 0) for rec in h]
+            if not any(scores):
+                continue
+
+            col_frame = tk.Frame(self._spark_frame, bg=CARBON_1)
+            col_frame.pack(side="left", fill="x", expand=True, padx=3)
+
+            cv = tk.Canvas(col_frame, bg=CARBON_2, height=32,
+                           highlightthickness=0)
+            cv.pack(fill="x")
+
+            def draw(cv=cv, scores=scores):
+                cv.update_idletasks()
+                W2 = cv.winfo_width()
+                H2 = cv.winfo_height()
+                if W2 < 4 or H2 < 4:
+                    return
+                cv.delete("all")
+                n = len(scores)
+                if n == 1:
+                    x = W2 / 2
+                    y = H2 / 2
+                    cv.create_oval(x - 2, y - 2, x + 2, y + 2,
+                                   fill=score_color(scores[0]), outline="")
+                else:
+                    pts2 = []
+                    for i, s in enumerate(scores):
+                        x = i / (n - 1) * W2
+                        y = H2 - max(s, 1) / 100 * H2
+                        pts2.append((x, y))
+                    col = score_color(scores[-1])
+                    for i in range(len(pts2) - 1):
+                        cv.create_line(pts2[i][0], pts2[i][1],
+                                       pts2[i + 1][0], pts2[i + 1][1],
+                                       fill=col, width=1)
+
+            cv.bind("<Configure>", lambda e, d=draw: d())
+            cv.after(50, draw)
+
+            latest = scores[-1] if scores else 0
+            tk.Label(col_frame, text=f"{lbl}  {latest}",
+                     font=("Consolas", 7), fg=score_color(latest),
+                     bg=CARBON_1, anchor="w").pack(fill="x")

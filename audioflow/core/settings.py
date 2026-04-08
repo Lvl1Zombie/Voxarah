@@ -32,6 +32,7 @@ DEFAULTS = {
     # ── Update Settings ────────────────────────────────────────────
     "auto_update_check":       True,
     "update_manifest_url":     "",
+    "last_seen_version":       "",
 }
 
 

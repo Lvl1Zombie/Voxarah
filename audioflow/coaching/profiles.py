@@ -42,6 +42,7 @@ VOICE_PROFILES = {
         "max_long_pause_sec":  3.0,
         "stutter_tolerance":   0.02,
         "clarity_floor_db":   -42,
+        "pitch_std_hz":        (6, 18),   # gentle, small pitch movement
         "tips": [
             "Speak slower than feels natural — listeners need time to absorb calm content.",
             "Avoid sudden energy spikes; keep your volume even throughout.",
@@ -58,6 +59,7 @@ VOICE_PROFILES = {
         "max_long_pause_sec":  0.8,
         "stutter_tolerance":   0.01,
         "clarity_floor_db":   -38,
+        "pitch_std_hz":        (22, 60),  # big pitch swings needed
         "tips": [
             "Short, punchy sentences drive energy. Cut filler ruthlessly.",
             "Use dynamic contrast — build UP to key words, don't stay flat.",
@@ -74,6 +76,7 @@ VOICE_PROFILES = {
         "max_long_pause_sec":  2.0,
         "stutter_tolerance":   0.005,
         "clarity_floor_db":   -42,
+        "pitch_std_hz":        (12, 32),  # moderate natural variation
         "tips": [
             "Narration tolerates zero stutters — re-record any hesitations.",
             "Consistency is king: listeners trust a steady, reliable voice.",
@@ -90,6 +93,7 @@ VOICE_PROFILES = {
         "max_long_pause_sec":  1.2,
         "stutter_tolerance":   0.01,
         "clarity_floor_db":   -40,
+        "pitch_std_hz":        (16, 42),  # variation sells
         "tips": [
             "Smile while recording — it literally changes your vocal tone.",
             "Land hard on the brand name or call-to-action every time.",
@@ -106,6 +110,7 @@ VOICE_PROFILES = {
         "max_long_pause_sec":  1.5,
         "stutter_tolerance":   0.03,          # some stutters are character choices
         "clarity_floor_db":   -42,
+        "pitch_std_hz":        (28, 80),  # maximum expressiveness
         "tips": [
             "Dynamic range is your superpower — use the full spectrum from whisper to shout.",
             "Commit fully to the character physicality even when just recording audio.",
@@ -122,6 +127,7 @@ VOICE_PROFILES = {
         "max_long_pause_sec":  2.0,
         "stutter_tolerance":   0.003,         # near zero — listeners will notice
         "clarity_floor_db":   -42,
+        "pitch_std_hz":        (12, 32),  # natural storytelling variation
         "tips": [
             "Consistency over hours is the hardest part — record in short sessions.",
             "Chapter breaks and paragraph pauses are separate from 'long pauses' — plan them.",
@@ -156,26 +162,33 @@ def score_recording(results: dict, profile_name: str) -> Dict:
     scores   = {}
     feedback = []
 
-    # ── 1. Pause Ratio ────────────────────────────────────────────
+    # ── 1. Pause Ratio / Pacing ───────────────────────────────────
     total_silence = sum(r['end'] - r['start'] for r in silence_regions)
     pause_ratio   = total_silence / max(1.0, duration)
     lo, hi        = profile['pause_ratio']
     scores['pause_ratio'] = _range_score(pause_ratio, lo, hi)
 
     if pause_ratio < lo:
-        feedback.append(("⚡ Pacing", f"You have very little silence ({pause_ratio*100:.0f}%). "
-                         f"For {profile_name}, aim for {lo*100:.0f}–{hi*100:.0f}% breathing room."))
+        feedback.append(("⚡ Pacing",
+            f"Only {pause_ratio*100:.0f}% of your recording is silence — you're rushing. "
+            f"A {profile_name} read needs {lo*100:.0f}–{hi*100:.0f}% breathing room. "
+            f"Listeners need white space to absorb what you're saying. Slow down and let the words land."))
     elif pause_ratio > hi:
-        feedback.append(("⏸ Pacing", f"Too much silence ({pause_ratio*100:.0f}% of your recording). "
-                         f"Target is {lo*100:.0f}–{hi*100:.0f}%. Tighten your delivery."))
+        feedback.append(("⏸ Pacing",
+            f"Silence is eating {pause_ratio*100:.0f}% of your recording — too much dead air. "
+            f"The target for {profile_name} is {lo*100:.0f}–{hi*100:.0f}%. "
+            f"Tighten the gaps between thoughts and keep the energy moving."))
 
-    # ── 2. Stutter Rate ───────────────────────────────────────────
-    stutter_rate = stats['stutter_count'] / max(1.0, duration / 60.0)  # per minute
+    # ── 2. Stutters / Delivery ────────────────────────────────────
     tol = profile['stutter_tolerance'] * duration
     scores['stutters'] = max(0, 100 - int(stats['stutter_count'] / max(1, tol + 1) * 100))
-    if stats['stutter_count'] > 0:
-        feedback.append(("🔁 Delivery", f"{stats['stutter_count']} stutter(s) detected. "
-                         f"{profile_name} style tolerates very few — these should be re-recorded."))
+    n_st = stats['stutter_count']
+    if n_st > 0:
+        per_min = n_st / max(1.0, duration / 60.0)
+        feedback.append(("🔁 Delivery",
+            f"{n_st} stutter{'s' if n_st > 1 else ''} detected ({per_min:.1f}/min). "
+            f"Each one chips away at your authority and the listener's trust. "
+            f"Mark these timestamps, re-read those lines cold, and punch in on the clean takes."))
 
     # ── 3. Long Pause Length ──────────────────────────────────────
     max_allowed = profile['max_long_pause_sec']
@@ -185,48 +198,115 @@ def score_recording(results: dict, profile_name: str) -> Dict:
     else:
         over = (worst_pause - max_allowed) / max_allowed
         scores['pause_length'] = max(0, int(100 - over * 80))
-        feedback.append(("⏳ Pauses", f"Longest pause is {worst_pause:.1f}s. "
-                         f"For {profile_name}, aim to keep them under {max_allowed:.1f}s."))
+        feedback.append(("⏳ Pauses",
+            f"Your longest pause is {worst_pause:.1f}s — {profile_name} shouldn't exceed {max_allowed:.1f}s. "
+            f"A pause that long signals you lost your place. "
+            f"Prep your copy better and mark breath points before you hit record."))
 
     # ── 4. Energy Consistency ─────────────────────────────────────
     frame_size = int(sr * 0.1)
     thresh = math.pow(10, profile['clarity_floor_db'] / 20.0)
     arr = np.asarray(samples, dtype=np.float32)
     n   = (len(arr) // frame_size) * frame_size
-    frame_rms    = np.sqrt(np.mean(arr[:n].reshape(-1, frame_size) ** 2, axis=1))
+    frame_rms     = np.sqrt(np.mean(arr[:n].reshape(-1, frame_size) ** 2, axis=1))
     speech_levels = frame_rms[frame_rms > thresh].tolist()
 
     if len(speech_levels) > 4:
-        mean_e    = float(np.mean(speech_levels))
-        cv        = float(np.std(speech_levels)) / (mean_e + 1e-12)
+        mean_e      = float(np.mean(speech_levels))
+        cv          = float(np.std(speech_levels)) / (mean_e + 1e-12)
         consistency = max(0.0, 1.0 - min(1.0, cv * 1.5))
+
+        # Detect where energy drops — compare first vs second half
+        mid = len(speech_levels) // 2
+        first_half  = float(np.mean(speech_levels[:mid]))  if mid > 0 else mean_e
+        second_half = float(np.mean(speech_levels[mid:]))  if mid > 0 else mean_e
+        drop_pct    = (first_half - second_half) / (first_half + 1e-12) * 100
 
         lo, hi = profile['energy_consistency']
         scores['consistency'] = _range_score(consistency, lo, hi)
 
         if consistency < lo:
-            feedback.append(("📊 Energy", f"Your energy level varies too much ({consistency*100:.0f}% consistency). "
-                             f"{profile_name} reads need {lo*100:.0f}–{hi*100:.0f}% consistency."))
+            if drop_pct > 15:
+                feedback.append(("📊 Energy",
+                    f"Your energy drops {drop_pct:.0f}% in the second half of the recording. "
+                    f"Listeners subconsciously check out when the voice fades — "
+                    f"stay committed to the last word as hard as the first."))
+            else:
+                feedback.append(("📊 Energy",
+                    f"Your volume is inconsistent throughout ({consistency*100:.0f}% steady). "
+                    f"{profile_name} needs {lo*100:.0f}–{hi*100:.0f}% consistency. "
+                    f"Work on diaphragm support — your breath is running out before your sentences do."))
         elif consistency > hi and hi < 0.80:
-            feedback.append(("📊 Energy", f"Your delivery is very flat ({consistency*100:.0f}% consistency). "
-                             f"{profile_name} style benefits from more dynamic variation."))
+            feedback.append(("📊 Energy",
+                f"Your delivery is too even ({consistency*100:.0f}% flat). "
+                f"{profile_name} needs dynamic variation to hold attention. "
+                f"Find the emotional peak of each sentence and lean into it."))
     else:
         scores['consistency'] = 70
 
     # ── 5. Clarity / Intelligibility ─────────────────────────────
-    clarity_floor = math.pow(10, profile['clarity_floor_db'] / 20.0)
     unclear_count = stats['unclear_count']
-    unclear_frac  = unclear_count / max(1.0, duration / 10.0)  # per 10s
+    unclear_frac  = unclear_count / max(1.0, duration / 10.0)
     scores['clarity'] = max(0, int(100 - unclear_frac * 40))
 
     if unclear_count > 0:
-        feedback.append(("🔊 Clarity", f"{unclear_count} section(s) may be too quiet or unclear. "
-                         f"Check your mic distance and consider re-recording these sections."))
+        feedback.append(("🔊 Clarity",
+            f"{unclear_count} section{'s' if unclear_count > 1 else ''} dropped below intelligible level. "
+            f"This is usually mic distance, room noise, or you trailing off at the end of lines. "
+            f"Check your gain staging and stay on-axis with your mic throughout the take."))
+
+    # ── 6. Pitch Variation ────────────────────────────────────────
+    pitch_stats = results.get('pitch_stats', {})
+    if pitch_stats and pitch_stats.get('mean_hz', 0) > 0:
+        std_hz  = pitch_stats.get('std_hz', 0.0)
+        rating  = pitch_stats.get('rating', '')
+        lo, hi  = profile.get('pitch_std_hz', (12, 32))
+        scores['pitch'] = _range_score(std_hz, lo, hi)
+
+        if std_hz < lo * 0.75:
+            feedback.append(("🎵 Pitch",
+                f"Your pitch is very flat (±{std_hz:.0f} Hz). You're reading — not performing. "
+                f"A {profile_name} needs at least ±{lo:.0f} Hz of movement to sound alive. "
+                f"Find the stressed word in every sentence and let your pitch rise or fall into it."))
+        elif std_hz < lo:
+            feedback.append(("🎵 Pitch",
+                f"Pitch variation is a little low (±{std_hz:.0f} Hz, target ±{lo:.0f}–{hi:.0f} Hz). "
+                f"You're in the right direction — push slightly more into the emotional peaks."))
+        elif std_hz > hi * 1.4:
+            feedback.append(("🎵 Pitch",
+                f"Your pitch swings widely (±{std_hz:.0f} Hz). "
+                f"For {profile_name} that can sound erratic rather than expressive. "
+                f"Channel the variation into key moments, not every word."))
+    else:
+        scores['pitch'] = 70   # no data — neutral score
+
+    # ── 7. Breath Control ─────────────────────────────────────────
+    n_br = stats.get('breath_count', 0)
+    n_mn = stats.get('mouth_noise_count', 0)
+    breath_per_min = n_br / max(1.0, duration / 60.0)
+
+    if breath_per_min > 8:
+        feedback.append(("💨 Breath",
+            f"{n_br} audible breath{'s' if n_br > 1 else ''} detected "
+            f"({breath_per_min:.0f}/min — above average). "
+            f"Try breathing through your nose between takes, and record with a slight smile "
+            f"to keep your airway open and quieter."))
+    elif n_br > 0 and breath_per_min > 4:
+        feedback.append(("💨 Breath",
+            f"{n_br} audible breath{'s' if n_br > 1 else ''} picked up. "
+            f"Not a dealbreaker, but clean these in post — "
+            f"the Edited playback already attenuates them for you."))
+
+    if n_mn > 2:
+        feedback.append(("👄 Mouth Noise",
+            f"{n_mn} mouth clicks or smacks detected. "
+            f"Drink room-temperature water before recording and avoid dairy beforehand. "
+            f"These are already attenuated in your Edited version."))
 
     # ── Overall Score ─────────────────────────────────────────────
-    weights = {'pause_ratio': 0.25, 'stutters': 0.30, 'pause_length': 0.20,
-               'consistency': 0.15, 'clarity': 0.10}
-    overall = int(sum(scores[k] * weights[k] for k in weights))
+    weights = {'pause_ratio': 0.20, 'stutters': 0.25, 'pause_length': 0.15,
+               'consistency': 0.15, 'clarity': 0.10, 'pitch': 0.15}
+    overall = int(sum(scores.get(k, 70) * weights[k] for k in weights))
 
     # ── Style Match Tips ──────────────────────────────────────────
     tips = profile['tips']
