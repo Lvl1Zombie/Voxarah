@@ -101,7 +101,7 @@ ANIM_SLOW  = 260   # ms — deliberate movement
 TITLEBAR_H    = 84
 TABBAR_H      = 40
 LEFT_PANEL_W  = 272
-BOTTOM_BAR_H  = 28
+BOTTOM_BAR_H  = 40
 STAT_ROW_H    = 72
 WAVEFORM_H    = 84
 

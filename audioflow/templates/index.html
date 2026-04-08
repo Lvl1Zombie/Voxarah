@@ -1,0 +1,532 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Voxarah — Voice Production Suite</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/css/style.css">
+</head>
+<body>
+
+<div class="shell">
+
+  <!-- ── Header ──────────────────────────────────────────────── -->
+  <header class="header">
+    <div class="logo">
+      <img src="/static/img/logo_hd.png" alt="Voxarah" onerror="this.style.display='none'">
+      <div>
+        <div class="logo-wordmark">VOX<span>A</span>RAH</div>
+      </div>
+    </div>
+    <span class="logo-sub">VOICE PRODUCTION SUITE</span>
+
+    <div class="header-spacer"></div>
+
+    <div class="header-status">
+      <div class="status-indicator">
+        <div class="status-dot" id="dot-ffmpeg"></div>
+        <span id="lbl-ffmpeg">FFMPEG</span>
+      </div>
+      <div class="status-indicator">
+        <div class="status-dot" id="dot-ai"></div>
+        <span id="lbl-ai">AI OFFLINE</span>
+      </div>
+      <span id="lbl-version" style="color:var(--text-ghost)">v2.1</span>
+    </div>
+  </header>
+
+  <!-- ── Sidebar ─────────────────────────────────────────────── -->
+  <nav class="sidebar">
+    <div class="nav">
+      <button class="nav-item active" data-tab="editor">
+        <span class="nav-icon">🎙️</span> Editor
+      </button>
+      <button class="nav-item" data-tab="coaching">
+        <span class="nav-icon">📊</span> Coaching
+      </button>
+      <button class="nav-item" data-tab="compare">
+        <span class="nav-icon">⚖️</span> Compare
+      </button>
+      <button class="nav-item" data-tab="characters">
+        <span class="nav-icon">🎭</span> Characters
+      </button>
+      <button class="nav-item" data-tab="history">
+        <span class="nav-icon">📁</span> History
+      </button>
+      <div class="nav-divider"></div>
+      <button class="nav-item" data-tab="settings">
+        <span class="nav-icon">⚙️</span> Settings
+      </button>
+    </div>
+
+    <div class="sidebar-footer">
+      <button class="btn btn-ghost btn-sm btn-full" onclick="openFeedback()">
+        💬 Give Feedback
+      </button>
+    </div>
+  </nav>
+
+  <!-- ── Main ────────────────────────────────────────────────── -->
+  <main class="main">
+
+    <!-- ══════════════════════════════════════════════════════════
+         EDITOR TAB
+    ══════════════════════════════════════════════════════════════ -->
+    <div class="tab-panel active" id="tab-editor">
+
+      <!-- Stat row -->
+      <div class="stat-grid" id="stat-grid">
+        <div class="stat-card accent">
+          <div class="stat-value" id="stat-pause-count">—</div>
+          <div class="stat-label">Pauses Trimmed</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-stutter-count">—</div>
+          <div class="stat-label">Stutters</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-unclear-count">—</div>
+          <div class="stat-label">Unclear</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-breath-count">—</div>
+          <div class="stat-label">Breaths</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-mouth-count">—</div>
+          <div class="stat-label">Mouth Noise</div>
+        </div>
+        <div class="stat-card">
+          <div class="stat-value" id="stat-time-saved">—</div>
+          <div class="stat-label">Time Saved</div>
+        </div>
+      </div>
+
+      <div class="mt-4 flex gap-4" style="align-items:flex-start">
+
+        <!-- Left column -->
+        <div class="flex-col gap-4" style="width:300px;flex-shrink:0">
+
+          <!-- File load -->
+          <div class="card card-sm">
+            <div class="card-title" style="margin-bottom:12px">Source File</div>
+            <div class="drop-zone" id="drop-zone">
+              <input type="file" id="file-input" accept=".wav,.mp3,.m4a,.flac,.ogg">
+              <div class="drop-zone-icon">🎵</div>
+              <div class="drop-zone-text">Drop audio here or click to browse</div>
+              <div class="drop-zone-sub">.wav · .mp3 · .m4a · .flac · .ogg</div>
+            </div>
+            <div id="file-loaded" class="file-loaded mt-2" style="display:none">
+              <div class="file-loaded-icon">🎙️</div>
+              <div>
+                <div class="file-loaded-name" id="file-loaded-name"></div>
+                <div class="file-loaded-meta" id="file-loaded-meta"></div>
+              </div>
+            </div>
+
+            <!-- Recording -->
+            <div class="flex gap-2 mt-2">
+              <button class="btn btn-ghost btn-sm grow" id="btn-rec-start" onclick="startRec()">● REC</button>
+              <button class="btn btn-danger btn-sm" id="btn-rec-stop" onclick="stopRec()" style="display:none">■ STOP</button>
+            </div>
+            <div class="rec-indicator mt-2" id="rec-indicator">
+              <div class="rec-dot"></div>
+              <span id="rec-timer">0:00.0</span>
+            </div>
+          </div>
+
+          <!-- Detection sliders -->
+          <div class="card card-sm">
+            <div class="card-title" style="margin-bottom:12px">Detection</div>
+            <div class="form-row">
+              <label class="label">Max Pause</label>
+              <div class="range-row">
+                <input type="range" id="sl-max-pause" min="0.3" max="3.0" step="0.1" value="1.0"
+                       oninput="rangeUpdate(this,'lbl-max-pause',v=>v.toFixed(1)+'s');saveSetting('max_pause_duration',+this.value)">
+                <span class="range-value" id="lbl-max-pause">1.0s</span>
+              </div>
+            </div>
+            <div class="form-row">
+              <label class="label">Silence Threshold</label>
+              <div class="range-row">
+                <input type="range" id="sl-silence" min="-60" max="-20" step="1" value="-40"
+                       oninput="rangeUpdate(this,'lbl-silence',v=>v.toFixed(0)+' dB');saveSetting('silence_threshold_db',+this.value)">
+                <span class="range-value" id="lbl-silence">-40 dB</span>
+              </div>
+            </div>
+            <div class="form-row">
+              <label class="label">Stutter Window</label>
+              <div class="range-row">
+                <input type="range" id="sl-stutter" min="0.2" max="2.0" step="0.1" value="0.8"
+                       oninput="rangeUpdate(this,'lbl-stutter',v=>v.toFixed(1)+'s');saveSetting('stutter_window',+this.value)">
+                <span class="range-value" id="lbl-stutter">0.8s</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Flags toggles -->
+          <div class="card card-sm">
+            <div class="card-title" style="margin-bottom:12px">Flags</div>
+            <div class="toggle-row">
+              <span class="toggle-label">Detect Stutters</span>
+              <label class="toggle"><input type="checkbox" id="tog-stutters" checked onchange="saveSetting('detect_stutters',this.checked)"><span class="toggle-track"></span></label>
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">Flag Unclear</span>
+              <label class="toggle"><input type="checkbox" id="tog-unclear" checked onchange="saveSetting('detect_unclear',this.checked)"><span class="toggle-track"></span></label>
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">Detect Breaths</span>
+              <label class="toggle"><input type="checkbox" id="tog-breaths" checked onchange="saveSetting('detect_breaths',this.checked)"><span class="toggle-track"></span></label>
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">Detect Mouth Noise</span>
+              <label class="toggle"><input type="checkbox" id="tog-mouth" checked onchange="saveSetting('detect_mouth_noises',this.checked)"><span class="toggle-track"></span></label>
+            </div>
+          </div>
+
+          <!-- Actions -->
+          <button class="btn btn-yellow btn-lg btn-full" id="btn-analyze" onclick="runAnalysis()" disabled>
+            ⚡ ANALYZE RECORDING
+          </button>
+
+          <!-- Progress -->
+          <div class="progress-wrap" id="progress-wrap" style="display:none">
+            <div class="progress-header">
+              <span id="progress-msg">Analyzing...</span>
+              <span id="progress-pct">0%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="progress-fill"></div>
+            </div>
+          </div>
+
+        </div>
+
+        <!-- Right column -->
+        <div class="flex-col gap-3 grow" style="min-width:0">
+
+          <!-- Waveform -->
+          <div class="waveform-wrap">
+            <span class="waveform-label">WAVEFORM</span>
+            <canvas id="waveform-canvas" height="84"></canvas>
+          </div>
+
+          <!-- Pitch -->
+          <div class="waveform-wrap">
+            <span class="waveform-label">PITCH</span>
+            <span class="waveform-badge" id="pitch-badge"></span>
+            <canvas id="pitch-canvas" height="80"></canvas>
+          </div>
+
+          <!-- Playback bar -->
+          <div class="playback-bar">
+            <button class="btn btn-ghost btn-sm" id="btn-play-orig" onclick="playOriginal()" disabled>▶ ORIGINAL</button>
+            <div style="width:1px;height:16px;background:var(--border)"></div>
+            <button class="btn btn-ghost btn-sm" id="btn-play-clean" onclick="playCleaned()" disabled>▶ EDITED</button>
+            <div style="width:1px;height:16px;background:var(--border)"></div>
+            <button class="btn btn-ghost btn-sm" id="btn-stop" onclick="stopAudio()" disabled>■ STOP</button>
+            <div class="timeline-track" id="timeline-track" onclick="seekAudio(event)">
+              <div class="timeline-fill" id="timeline-fill"></div>
+            </div>
+            <span class="playback-time" id="playback-time">—</span>
+          </div>
+
+          <!-- Issues header -->
+          <div class="flex items-center gap-2">
+            <span class="section-label">Issues</span>
+            <span class="pill pill-accent" id="issues-count">0</span>
+            <div class="grow"></div>
+            <button class="btn btn-ghost btn-sm" id="btn-export-labels" onclick="exportLabels()" disabled>Export Labels</button>
+            <button class="btn btn-ghost btn-sm" id="btn-export-wav" onclick="exportWav()" disabled>Export WAV</button>
+          </div>
+
+          <!-- Issues table -->
+          <div style="overflow:auto;max-height:320px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+            <table class="issues-table">
+              <thead>
+                <tr>
+                  <th>Type</th>
+                  <th>Time</th>
+                  <th>Description</th>
+                  <th>Severity</th>
+                </tr>
+              </thead>
+              <tbody id="issues-body">
+                <tr><td colspan="4"><div class="empty-state"><div class="empty-state-icon">🔍</div>Analyze a recording to see issues</div></td></tr>
+              </tbody>
+            </table>
+          </div>
+
+        </div>
+      </div>
+    </div><!-- /tab-editor -->
+
+
+    <!-- ══════════════════════════════════════════════════════════
+         COACHING TAB
+    ══════════════════════════════════════════════════════════════ -->
+    <div class="tab-panel" id="tab-coaching">
+      <div class="page-title">Voice Coaching</div>
+      <div class="page-sub">Score your recording against professional benchmarks</div>
+
+      <div class="grid-2 gap-4">
+
+        <!-- Left: profile + score -->
+        <div class="flex-col gap-4">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Voice Profile</div>
+            </div>
+            <div class="form-row">
+              <label class="label">Select Style</label>
+              <select class="select" id="coaching-profile" onchange="scoreRecording()">
+                <option>Loading...</option>
+              </select>
+            </div>
+            <p class="text-sm text-muted" id="profile-desc" style="margin-top:8px"></p>
+          </div>
+
+          <div class="card">
+            <div class="card-title" style="margin-bottom:0">Overall Score</div>
+            <div class="score-hero">
+              <div class="score-number" id="score-overall">—</div>
+              <div class="score-grade" id="score-grade"></div>
+            </div>
+            <div id="dim-bars"></div>
+          </div>
+        </div>
+
+        <!-- Right: tips + AI + retake -->
+        <div class="flex-col gap-4">
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">Coaching Tips</div>
+            </div>
+            <div id="coaching-tips">
+              <div class="empty-state"><div class="empty-state-icon">💡</div>Score a recording to get tips</div>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">AI Coaching</div>
+              <div class="flex gap-2">
+                <button class="btn btn-primary btn-sm" id="btn-ai-coach" onclick="getAICoaching()" disabled>
+                  ✨ Get AI Coaching
+                </button>
+                <button class="btn btn-ghost btn-sm" onclick="cancelAI()">Cancel</button>
+              </div>
+            </div>
+            <div class="log-box" id="ai-output" data-placeholder="AI coaching will appear here..."></div>
+          </div>
+
+          <div class="card">
+            <div class="card-header">
+              <div class="card-title">↩ Retake Guide</div>
+            </div>
+            <div class="banner" id="retake-summary" style="margin-bottom:12px">
+              Analyze a recording to get retake guidance.
+            </div>
+            <div id="retake-regions"></div>
+          </div>
+        </div>
+
+      </div>
+    </div><!-- /tab-coaching -->
+
+
+    <!-- ══════════════════════════════════════════════════════════
+         COMPARE TAB
+    ══════════════════════════════════════════════════════════════ -->
+    <div class="tab-panel" id="tab-compare">
+      <div class="page-title">Compare Takes</div>
+      <div class="page-sub">Side-by-side analysis of up to 3 recordings</div>
+
+      <!-- Profile selector + rescore -->
+      <div class="flex items-center gap-3 mb-4">
+        <label class="label" style="margin:0;white-space:nowrap">Voice Style</label>
+        <select class="select" id="compare-profile" style="max-width:240px"></select>
+        <button class="btn btn-ghost btn-sm" onclick="rescoreAll()">Re-score All</button>
+      </div>
+
+      <!-- Banner -->
+      <div class="banner" id="compare-banner" style="margin-bottom:16px">
+        Load 2–3 takes and analyze to compare.
+      </div>
+
+      <!-- 3 columns -->
+      <div class="compare-grid" id="compare-grid">
+        <!-- Built by JS -->
+      </div>
+    </div><!-- /tab-compare -->
+
+
+    <!-- ══════════════════════════════════════════════════════════
+         CHARACTERS TAB
+    ══════════════════════════════════════════════════════════════ -->
+    <div class="tab-panel" id="tab-characters">
+      <div class="page-title">Character Archetypes</div>
+      <div class="page-sub">Browse and study vocal archetypes for character work</div>
+      <div class="grid-auto" id="characters-grid"></div>
+    </div><!-- /tab-characters -->
+
+
+    <!-- ══════════════════════════════════════════════════════════
+         HISTORY TAB
+    ══════════════════════════════════════════════════════════════ -->
+    <div class="tab-panel" id="tab-history">
+      <div class="page-title">Session History</div>
+      <div class="page-sub">Your last 200 recorded sessions</div>
+      <div class="card">
+        <div id="history-list">
+          <div class="empty-state"><div class="empty-state-icon">📁</div>No history yet</div>
+        </div>
+      </div>
+    </div><!-- /tab-history -->
+
+
+    <!-- ══════════════════════════════════════════════════════════
+         SETTINGS TAB
+    ══════════════════════════════════════════════════════════════ -->
+    <div class="tab-panel" id="tab-settings">
+      <div class="page-title">Settings</div>
+      <div class="page-sub">Configure analysis and application behaviour</div>
+
+      <div class="grid-2 gap-4">
+
+        <!-- Analysis -->
+        <div class="card">
+          <div class="card-title" style="margin-bottom:16px">Analysis</div>
+
+          <div class="form-row">
+            <label class="label">Silence Threshold (dB)</label>
+            <div class="range-row">
+              <input type="range" id="set-silence-db" min="-60" max="-20" step="1" value="-40"
+                     oninput="rangeUpdate(this,'set-silence-db-lbl',v=>v.toFixed(0)+' dB')">
+              <span class="range-value" id="set-silence-db-lbl">-40 dB</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label class="label">Min Silence Duration (s)</label>
+            <div class="range-row">
+              <input type="range" id="set-min-sil" min="0.05" max="1.0" step="0.05" value="0.15"
+                     oninput="rangeUpdate(this,'set-min-sil-lbl',v=>v.toFixed(2)+'s')">
+              <span class="range-value" id="set-min-sil-lbl">0.15s</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label class="label">Max Pause Duration (s)</label>
+            <div class="range-row">
+              <input type="range" id="set-max-pause" min="0.3" max="3.0" step="0.1" value="1.0"
+                     oninput="rangeUpdate(this,'set-max-pause-lbl',v=>v.toFixed(1)+'s')">
+              <span class="range-value" id="set-max-pause-lbl">1.0s</span>
+            </div>
+          </div>
+          <div class="form-row">
+            <label class="label">Stutter Window (s)</label>
+            <div class="range-row">
+              <input type="range" id="set-stutter-w" min="0.2" max="2.0" step="0.1" value="0.8"
+                     oninput="rangeUpdate(this,'set-stutter-w-lbl',v=>v.toFixed(1)+'s')">
+              <span class="range-value" id="set-stutter-w-lbl">0.8s</span>
+            </div>
+          </div>
+
+          <div class="divider"></div>
+
+          <div class="toggle-row">
+            <span class="toggle-label">Detect Stutters</span>
+            <label class="toggle"><input type="checkbox" id="set-tog-stutters" checked><span class="toggle-track"></span></label>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Flag Unclear Audio</span>
+            <label class="toggle"><input type="checkbox" id="set-tog-unclear" checked><span class="toggle-track"></span></label>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Detect Breaths</span>
+            <label class="toggle"><input type="checkbox" id="set-tog-breaths" checked><span class="toggle-track"></span></label>
+          </div>
+          <div class="toggle-row">
+            <span class="toggle-label">Detect Mouth Noise</span>
+            <label class="toggle"><input type="checkbox" id="set-tog-mouth" checked><span class="toggle-track"></span></label>
+          </div>
+        </div>
+
+        <!-- Coaching + Interface -->
+        <div class="flex-col gap-4">
+          <div class="card">
+            <div class="card-title" style="margin-bottom:16px">Coaching</div>
+            <div class="form-row">
+              <label class="label">Default Voice Profile</label>
+              <select class="select" id="set-profile"></select>
+            </div>
+            <div class="toggle-row">
+              <span class="toggle-label">Show Coaching Tips</span>
+              <label class="toggle"><input type="checkbox" id="set-tog-tips" checked><span class="toggle-track"></span></label>
+            </div>
+          </div>
+
+          <div class="card">
+            <div class="card-title" style="margin-bottom:16px">Interface</div>
+            <div class="toggle-row">
+              <span class="toggle-label">Auto-analyze on Load</span>
+              <label class="toggle"><input type="checkbox" id="set-tog-auto"><span class="toggle-track"></span></label>
+            </div>
+          </div>
+
+          <div class="flex gap-2">
+            <button class="btn btn-yellow btn-full" onclick="saveAllSettings()">💾 Save Settings</button>
+            <button class="btn btn-ghost" onclick="resetSettings()">Reset</button>
+          </div>
+        </div>
+
+      </div>
+    </div><!-- /tab-settings -->
+
+  </main><!-- /main -->
+</div><!-- /shell -->
+
+<!-- ── Character Detail Modal ──────────────────────────────────── -->
+<div class="modal-overlay hidden" id="char-modal" onclick="closeCharModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-top"></div>
+    <div class="modal-header">
+      <div class="modal-title" id="char-modal-title"></div>
+      <div class="modal-sub" id="char-modal-cat"></div>
+    </div>
+    <div class="modal-body" id="char-modal-body"></div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeCharModal()">Close</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Feedback Modal ────────────────────────────────────────────── -->
+<div class="modal-overlay hidden" id="feedback-modal" onclick="closeFeedback(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-top"></div>
+    <div class="modal-header">
+      <div class="modal-title">💬 Give Feedback</div>
+      <div class="modal-sub">What would you like added or improved?</div>
+    </div>
+    <div class="modal-body">
+      <textarea class="textarea" id="feedback-text" rows="7"
+                placeholder="Describe what you want added, changed, or fixed..." style="resize:vertical"></textarea>
+      <p class="text-sm text-muted mt-2" id="feedback-status"></p>
+    </div>
+    <div class="modal-footer">
+      <button class="btn btn-ghost" onclick="closeFeedback()">Cancel</button>
+      <button class="btn btn-primary" id="btn-send-feedback" onclick="sendFeedback()">Send Feedback</button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Toast container ───────────────────────────────────────────── -->
+<div class="toast-container" id="toast-container"></div>
+
+<script src="/static/js/app.js"></script>
+</body>
+</html>
