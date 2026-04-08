@@ -32,9 +32,11 @@
 - Voice priority chain: Ava (Natural) → Jenny (Natural) → Aria (Natural) → Zira
 - Ava Natural is already handled in `core/voice.py` — no work needed
 
-## Audacity Integration
-- Integration with **Audacity** using **mod-script-pipe** named pipes
-- Allows automation and communication with Audacity from the app
+## Built-in Recorder
+- `core/recorder.py` — `VoxRecorder` class using **sounddevice** (PortAudio)
+- Records at 44100 Hz mono, saves to a temp WAV, passes directly into the analysis pipeline
+- UI: **OPEN FILE** | **● REC** buttons in editor left panel; timer + STOP shown while recording
+- `sounddevice` must be installed: `pip install sounddevice`
 
 ## Stutter Detection
 - Uses a **micro-silence cluster algorithm**
@@ -61,7 +63,6 @@
 sourcing YouTube/podcast clips for a future re-calibration of those two profiles.
 
 ## TODO
-- Add built-in recorder
 - Enable before/after playback
 - Add batch processing
 - Re-calibrate Energetic/Hype and Commercial/Salesy from non-LibriVox hype/promo sources

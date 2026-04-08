@@ -16,7 +16,7 @@ import subprocess
 
 from core.settings        import SettingsManager
 from core.analyzer        import AudioAnalyzer, build_cleaned_wav, build_label_file
-from core.audacity_bridge import AudacityBridge
+from core.recorder        import VoxRecorder
 from core.ai_coach        import AICoach
 from core.updater         import Updater
 from core.voice           import VoiceEngine
@@ -59,7 +59,8 @@ class AudioFlowApp(tk.Tk):
         self.minsize(960, 640)
 
         self.settings  = SettingsManager()
-        self.bridge    = AudacityBridge(log_callback=self._log)
+        self.recorder  = VoxRecorder()
+        self._rec_temp_path = None
         self.ai_coach  = AICoach()
         self.voice     = VoiceEngine()
         self.updater   = Updater(current_version=APP_VERSION)
@@ -84,9 +85,6 @@ class AudioFlowApp(tk.Tk):
 
         # Force dark title bar on Windows 10/11
         self.after(50, self._set_dark_titlebar)
-
-        if self.settings.get("audacity_auto_connect"):
-            self.after(900, self._try_connect_silent)
 
         self.after(1200, self._check_ollama_status)
         self.after(1800, self._check_for_updates)
@@ -127,19 +125,6 @@ class AudioFlowApp(tk.Tk):
         tk.Label(bar, text="VOICE PRODUCTION SUITE",
                  font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left")
 
-        # Right side
-        right = tk.Frame(bar, bg=BLACK)
-        right.pack(side="right", padx=14)
-
-        self._conn_canvas = tk.Canvas(right, width=8, height=8,
-                                       bg=BLACK, highlightthickness=0)
-        self._conn_canvas.pack(side="left", padx=(0, 6))
-        self._conn_dot = self._conn_canvas.create_oval(1, 1, 7, 7,
-                                                        fill=EDGE_BRIGHT, outline="")
-
-        self._conn_var = tk.StringVar(value="AUDACITY  OFFLINE")
-        tk.Label(right, textvariable=self._conn_var,
-                 font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left")
 
     def _draw_logo(self, canvas):
         try:
@@ -152,11 +137,6 @@ class AudioFlowApp(tk.Tk):
             canvas.create_image(0, 0, anchor="nw", image=photo)
         except Exception:
             pass
-
-    def _update_conn_indicator(self, connected):
-        color = YELLOW if connected else EDGE_BRIGHT
-        self._conn_canvas.itemconfig(self._conn_dot, fill=color)
-        self._conn_var.set("AUDACITY  LIVE" if connected else "AUDACITY  OFFLINE")
 
     def _set_dark_titlebar(self):
         """Force dark title bar on Windows 10/11 via DWM API."""
@@ -191,7 +171,6 @@ class AudioFlowApp(tk.Tk):
         tabs = [
             ("editor",   "  EDITOR  "),
             ("coaching", "  COACHING  "),
-            ("audacity", "  AUDACITY  "),
             ("settings", "  SETTINGS  "),
         ]
 
@@ -240,12 +219,10 @@ class AudioFlowApp(tk.Tk):
 
         self._tab_frames["editor"]   = tk.Frame(self._body, bg=CARBON_1)
         self._tab_frames["coaching"] = tk.Frame(self._body, bg=CARBON_1)
-        self._tab_frames["audacity"] = tk.Frame(self._body, bg=CARBON_1)
         self._tab_frames["settings"] = tk.Frame(self._body, bg=CARBON_1)
 
         self._build_editor_tab()
         self._build_coaching_tab()
-        self._build_audacity_tab()
         self._build_settings_tab()
 
         self._switch_tab("editor")
@@ -349,7 +326,20 @@ class AudioFlowApp(tk.Tk):
                  font=FONT_MONO, fg=TEXT_GHOST, bg=CARBON_2,
                  anchor="w", padx=8).pack(fill="x", pady=(0, 4))
 
-        PrimaryButton(s1, "OPEN AUDIO FILE", command=self._open_file).pack(fill="x")
+        btn_row = tk.Frame(s1, bg=SURFACE)
+        btn_row.pack(fill="x", pady=(0, 4))
+        PrimaryButton(btn_row, "OPEN FILE",
+                      command=self._open_file).pack(side="left", fill="x", expand=True, padx=(0, 4))
+        SecondaryButton(btn_row, "● REC",
+                        command=self._start_recording).pack(side="left", fill="x", expand=True)
+
+        # Recording state — shown only while recording
+        self._rec_state = tk.Frame(s1, bg=SURFACE)
+        self._rec_timer_var = tk.StringVar(value="")
+        tk.Label(self._rec_state, textvariable=self._rec_timer_var,
+                 font=FONT_MONO_MED, fg=RED_FLAG, bg=SURFACE).pack(fill="x", pady=(0, 4))
+        PrimaryButton(self._rec_state, "■  STOP RECORDING",
+                      command=self._stop_recording).pack(fill="x")
 
         tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=6)
 
@@ -408,11 +398,6 @@ class AudioFlowApp(tk.Tk):
         track.pack_propagate(False)
         self._progress_fill = tk.Frame(track, bg=YELLOW, height=6)
         self._progress_fill.place(x=0, y=0, relheight=1, relwidth=0)
-
-        self._apply_btn = SecondaryButton(s4, "APPLY IN AUDACITY",
-                                          command=self._apply_in_audacity)
-        self._apply_btn.pack(fill="x")
-        self._apply_btn.config(state="disabled", fg=TEXT_GHOST)
 
         tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=6)
 
@@ -574,7 +559,6 @@ class AudioFlowApp(tk.Tk):
         self._filepath_var.set(fname)
         self._set_status(f"Loaded: {fname}")
         self.results = None
-        self._apply_btn.config(state="disabled")
         self._clear_results()
         try:
             kb   = os.path.getsize(path) / 1024
@@ -848,7 +832,6 @@ class AudioFlowApp(tk.Tk):
         self._update_progress(1.0, "Analysis complete")
         n_issues = len(self.results["all_edits"])
         self._set_status(f"Done — {n_issues} issues found")
-        self._apply_btn.config(state="normal", fg=YELLOW)
 
         if hasattr(self, "_coaching_manager"):
             self._coaching_manager.set_results(self.results)
@@ -880,30 +863,6 @@ class AudioFlowApp(tk.Tk):
             except Exception as e:
                 messagebox.showerror("Export Error", str(e))
 
-    def _apply_in_audacity(self):
-        if not self.results:
-            messagebox.showwarning("No Results", "Run analysis first.")
-            return
-        if not self.bridge.connected:
-            if not self.bridge.connect():
-                messagebox.showerror("Not Connected",
-                    "Could not connect to Audacity.\n\n"
-                    "1. Audacity must be open\n"
-                    "2. mod-script-pipe must be enabled\n"
-                    "   (Edit → Preferences → Modules → mod-script-pipe → Enabled)\n"
-                    "3. Restart Audacity after enabling")
-                return
-        self._apply_btn.config(state="disabled")
-
-        def task():
-            self.bridge.apply_edits_batch(
-                self.results["all_edits"],
-                self.settings.get("max_pause_duration"),
-                progress_callback=lambda f: self._on_progress(f, "Applying in Audacity…"))
-            self.after(0, lambda: self._apply_btn.config(state="normal"))
-            self.after(0, lambda: self._set_status("Edits applied in Audacity"))
-
-        threading.Thread(target=task, daemon=True).start()
 
     # ══════════════════════════════════════════════════════════════
     # TAB 2 — COACHING
@@ -914,126 +873,6 @@ class AudioFlowApp(tk.Tk):
             self._tab_frames["coaching"], self.settings,
             ai_coach=self.ai_coach, voice_engine=self.voice)
 
-    # ══════════════════════════════════════════════════════════════
-    # TAB 3 — AUDACITY
-    # ══════════════════════════════════════════════════════════════
-
-    def _build_audacity_tab(self):
-        p = self._tab_frames["audacity"]
-
-        left = tk.Frame(p, bg=SURFACE, width=320)
-        left.pack(side="left", fill="y")
-        left.pack_propagate(False)
-        tk.Frame(left, bg=EDGE, width=1).pack(side="right", fill="y")
-
-        # Connection
-        conn = tk.Frame(left, bg=SURFACE)
-        conn.pack(fill="x", padx=SECTION_PAD, pady=(14, 0))
-        SectionLabel(conn, "Connection", bg=SURFACE).pack(fill="x", pady=(0, 10))
-
-        self._aud_status_var = tk.StringVar(value="OFFLINE")
-        tk.Label(conn, textvariable=self._aud_status_var,
-                 font=FONT_MONO_MED, fg=EDGE_BRIGHT, bg=SURFACE).pack(anchor="w", pady=(0,8))
-
-        tk.Label(conn,
-                 text="Enable in Audacity:\nEdit → Preferences → Modules\n→ mod-script-pipe → Enabled\n→ Restart Audacity",
-                 font=FONT_MONO, fg=TEXT_GHOST, bg=SURFACE, justify="left").pack(anchor="w", pady=(0,10))
-
-        PrimaryButton(conn, "CONNECT TO AUDACITY",
-                      command=self._try_connect).pack(fill="x", pady=(0,6))
-        SecondaryButton(conn, "DISCONNECT",
-                        command=self._disconnect).pack(fill="x")
-
-        tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=10)
-
-        # Controls
-        ctrl = tk.Frame(left, bg=SURFACE)
-        ctrl.pack(fill="x", padx=SECTION_PAD)
-        SectionLabel(ctrl, "Direct Controls", bg=SURFACE).pack(fill="x", pady=(0,10))
-
-        for row_cmds in [
-            [("Play",  self.bridge.play),  ("Stop",  self.bridge.stop),  ("Undo", self.bridge.undo)],
-            [("Redo",  self.bridge.redo),  ("Fit Window", self.bridge.fit_in_window)],
-        ]:
-            row = tk.Frame(ctrl, bg=SURFACE)
-            row.pack(fill="x", pady=(0,4))
-            for txt, cmd in row_cmds:
-                GhostButton(row, txt, cmd, bg=SURFACE).pack(side="left", padx=(0,4))
-
-        tk.Frame(left, bg=EDGE, height=1).pack(fill="x", pady=10)
-
-        imp = tk.Frame(left, bg=SURFACE)
-        imp.pack(fill="x", padx=SECTION_PAD)
-        SecondaryButton(imp, "IMPORT LABELS TO AUDACITY",
-                        command=self._import_labels).pack(fill="x", pady=(0,6))
-        SecondaryButton(imp, "EXPORT FROM AUDACITY",
-                        command=self._export_from_audacity).pack(fill="x")
-
-        # Log
-        right = tk.Frame(p, bg=CARBON_1)
-        right.pack(side="left", fill="both", expand=True)
-
-        hdr = tk.Frame(right, bg=CARBON_1, height=28)
-        hdr.pack(fill="x")
-        hdr.pack_propagate(False)
-        tk.Label(hdr, text="ACTIVITY LOG", font=FONT_MONO,
-                 fg=TEXT_GHOST, bg=CARBON_1, padx=14).pack(side="left", fill="y")
-        tk.Frame(hdr, bg=YELLOW, height=1).pack(side="bottom", fill="x")
-
-        self._log_area = make_log_text(right, height=30)
-        self._log_area.pack(fill="both", expand=True)
-
-    def _try_connect(self):
-        self._set_status("Connecting to Audacity…")
-        ok = self.bridge.connect()
-        self._update_conn_indicator(ok)
-        self._aud_status_var.set("LIVE" if ok else "OFFLINE")
-        if ok and self.results:
-            self._apply_btn.config(state="normal")
-        self._set_status("Connected" if ok else "Connection failed — is Audacity open?")
-
-    def _try_connect_silent(self):
-        ok = self.bridge.connect()
-        self._update_conn_indicator(ok)
-        if hasattr(self, "_aud_status_var"):
-            self._aud_status_var.set("LIVE" if ok else "OFFLINE")
-
-    def _disconnect(self):
-        self.bridge.disconnect()
-        self._update_conn_indicator(False)
-        self._aud_status_var.set("OFFLINE")
-
-    def _import_labels(self):
-        if not self.results:
-            messagebox.showwarning("No Results", "Run analysis first.")
-            return
-        if not self.bridge.connected:
-            messagebox.showwarning("Not Connected", "Connect to Audacity first.")
-            return
-        tmp = tempfile.mktemp(suffix=".txt")
-        with open(tmp, "w") as f:
-            f.write(build_label_file(self.results))
-        self.bridge.import_labels(tmp)
-        self._log("Labels imported into Audacity")
-
-    def _export_from_audacity(self):
-        if not self.bridge.connected:
-            messagebox.showwarning("Not Connected", "Connect to Audacity first.")
-            return
-        path = filedialog.asksaveasfilename(defaultextension=".wav",
-                                             filetypes=[("WAV", "*.wav")])
-        if path:
-            self.bridge.export_wav(path)
-            self._log(f"Export triggered: {os.path.basename(path)}")
-
-    def _log(self, msg):
-        def _do():
-            if hasattr(self, "_log_area"):
-                log_append(self._log_area, msg)
-        try:
-            self.after(0, _do)
-        except Exception:
-            print(msg)
 
     # ══════════════════════════════════════════════════════════════
     # TAB 4 — SETTINGS
@@ -1144,12 +983,6 @@ class AudioFlowApp(tk.Tk):
         row("Detect Stutters",               "detect_stutters",       "bool")
         row("Detect Unclear Audio",          "detect_unclear",        "bool")
 
-        section("Audacity")
-        row("Auto-connect on startup",       "audacity_auto_connect", "bool")
-        row("Apply trims in Audacity",       "audacity_apply_trims",  "bool")
-        row("Add label track for flags",     "audacity_add_labels",   "bool")
-        row("Fit track in window after",     "audacity_fit_after",    "bool")
-
         section("Coaching")
         row("Default Voice Profile",         "coaching_profile",      "choice",
             choices=get_all_profiles())
@@ -1197,3 +1030,62 @@ class AudioFlowApp(tk.Tk):
         if messagebox.askyesno("Reset", "Reset all settings to defaults?"):
             self.settings.reset_to_defaults()
             self._set_status("Settings reset")
+
+    def _log(self, msg):
+        print(msg)
+
+    # ══════════════════════════════════════════════════════════════
+    # RECORDER
+    # ══════════════════════════════════════════════════════════════
+
+    def _start_recording(self):
+        if not self.recorder.available:
+            messagebox.showerror("No Audio Device",
+                "sounddevice is not available.\nInstall it with: pip install sounddevice")
+            return
+        if not self.recorder.start():
+            messagebox.showerror("Recording Failed",
+                "Could not start recording.\nCheck your microphone and audio device.")
+            return
+        self._filepath_var.set("\u25cf RECORDING...")
+        self._fileinfo_var.set("")
+        self._rec_state.pack(fill="x", pady=(4, 0))
+        self._rec_tick()
+
+    def _rec_tick(self):
+        if not self.recorder.is_recording:
+            return
+        elapsed = self.recorder.elapsed_seconds
+        m = int(elapsed // 60)
+        s = elapsed % 60
+        self._rec_timer_var.set(f"\u25cf REC  {m}:{s:04.1f}")
+        self.after(100, self._rec_tick)
+
+    def _stop_recording(self):
+        path = self.recorder.stop()
+        self._rec_state.pack_forget()
+        self._rec_timer_var.set("")
+        if not path:
+            self._filepath_var.set("No file loaded")
+            self._set_status("Recording failed or was empty")
+            return
+        if self._rec_temp_path and os.path.exists(self._rec_temp_path):
+            try:
+                os.remove(self._rec_temp_path)
+            except Exception:
+                pass
+        self._rec_temp_path = path
+        self._wav_path      = path
+        self._filepath_var.set("recorded_take.wav")
+        self._set_status("Recording captured — ready to analyze")
+        self.results = None
+        self._clear_results()
+        try:
+            kb   = os.path.getsize(path) / 1024
+            size = f"{kb/1024:.1f}MB" if kb > 1024 else f"{int(kb)}KB"
+            self._fileinfo_var.set(f"WAV  {size}")
+            self._format_var.set(f"WAV  {size}")
+            ffmpeg = self._find_ffmpeg()
+            self._ffmpeg_var.set("FFMPEG OK" if ffmpeg else "FFMPEG \u2014")
+        except Exception:
+            pass

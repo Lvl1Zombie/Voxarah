@@ -17,12 +17,6 @@ DEFAULTS = {
     "detect_stutters":         True,
     "detect_unclear":          True,
 
-    # ── Audacity Settings ──────────────────────────────────────────
-    "audacity_auto_connect":   True,    # try to connect on startup
-    "audacity_apply_trims":    True,    # actually delete/trim in Audacity
-    "audacity_add_labels":     True,    # add label track for flags
-    "audacity_fit_after":      True,    # fit track in window after edits
-
     # ── Coaching Settings ──────────────────────────────────────────
     "coaching_profile":        "Narrator / Documentary",
     "show_coaching_tips":      True,
