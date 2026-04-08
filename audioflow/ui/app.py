@@ -307,7 +307,15 @@ class AudioFlowApp(tk.Tk):
                  font=FONT_MONO, fg=TEXT, bg=BLACK).pack(side="left", padx=12)
 
         # Right side — build right-to-left
-        SecondaryButton(bar, "CHECK UPDATES", command=lambda: self._check_for_updates(forced=True)).pack(side="right", padx=(0, 12))
+        GhostButton(bar, "CHECK UPDATES",
+                    command=lambda: self._check_for_updates(forced=True),
+                    bg=BLACK).pack(side="right", padx=(0, 12), pady=6)
+
+        tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=8)
+
+        GhostButton(bar, "GIVE FEEDBACK",
+                    command=self._open_feedback_dialog,
+                    bg=BLACK).pack(side="right", padx=(0, 8), pady=6)
 
         tk.Frame(bar, bg=SEP_COLOR, width=1).pack(side="right", fill="y", pady=8)
         tk.Label(bar, text=f"VOXARAH  v{APP_VERSION}",
@@ -891,6 +899,131 @@ class AudioFlowApp(tk.Tk):
         self._progress_pct.config(text=f"{pct}%" if fraction > 0 else "")
         self._progress.set(fraction, msg)
         self._set_status(msg)
+
+    # ══════════════════════════════════════════════════════════════
+    # FEEDBACK
+    # ══════════════════════════════════════════════════════════════
+
+    _WEBHOOK = (
+        "https://discord.com/api/webhooks/1491454548714324209/"
+        "tPAWiZ8A9KAee0dr_wo5zafUvTNdwF78qkUP0wZnMYacNgtUGMVX_-e0sBk3dYdXFqxI"
+    )
+
+    def _open_feedback_dialog(self):
+        """Open the styled feedback modal."""
+        if getattr(self, "_feedback_win", None) and \
+                self._feedback_win.winfo_exists():
+            self._feedback_win.lift()
+            return
+
+        win = tk.Toplevel(self, bg=CARBON_2)
+        win.title("Send Feedback")
+        win.resizable(False, False)
+        win.transient(self)
+        win.grab_set()
+        self._feedback_win = win
+
+        # ── Top stripe ──
+        tk.Frame(win, bg=YELLOW, height=2).pack(fill="x")
+
+        # ── Header ──
+        hdr = tk.Frame(win, bg=BLACK)
+        hdr.pack(fill="x")
+        tk.Frame(hdr, bg=YELLOW, width=3).pack(side="left", fill="y")
+        hdr_inner = tk.Frame(hdr, bg=BLACK)
+        hdr_inner.pack(side="left", fill="both", expand=True, padx=16, pady=12)
+        tk.Label(hdr_inner, text="GIVE FEEDBACK", font=FONT_TITLE,
+                 fg=YELLOW, bg=BLACK).pack(anchor="w")
+        tk.Label(hdr_inner, text="What would you like added or improved?",
+                 font=FONT_SMALL, fg=TEXT_MUTED, bg=BLACK).pack(anchor="w")
+
+        # ── Text area ──
+        ta_frame = tk.Frame(win, bg=CARBON_2, padx=16, pady=12)
+        ta_frame.pack(fill="both", expand=True)
+
+        self._feedback_text = tk.Text(
+            ta_frame, width=52, height=8,
+            font=FONT_BODY,
+            bg=CARBON_3, fg=TEXT,
+            insertbackground=YELLOW,
+            relief="flat", bd=0,
+            wrap="word",
+            padx=10, pady=8,
+            selectbackground=YELLOW_SUBTLE,
+            selectforeground=YELLOW,
+        )
+        self._feedback_text.pack(fill="both", expand=True)
+        tk.Frame(ta_frame, bg=YELLOW, height=1).pack(fill="x", pady=(4, 0))
+
+        # ── Status label ──
+        self._feedback_status = tk.StringVar(value="")
+        tk.Label(win, textvariable=self._feedback_status,
+                 font=FONT_MONO, fg=TEXT_MUTED, bg=CARBON_2,
+                 anchor="w").pack(fill="x", padx=16)
+
+        # ── Buttons ──
+        btn_row = tk.Frame(win, bg=CARBON_2, padx=16, pady=12)
+        btn_row.pack(fill="x")
+
+        from ui.components import PrimaryButton, GhostButton as _GB
+        self._feedback_send_btn = PrimaryButton(
+            btn_row, "SEND FEEDBACK", command=self._submit_feedback)
+        self._feedback_send_btn.pack(side="left", fill="x", expand=True,
+                                     padx=(0, 8))
+        _GB(btn_row, "CANCEL", command=win.destroy,
+            bg=CARBON_2).pack(side="left")
+
+        # Center on parent
+        win.update_idletasks()
+        x = self.winfo_rootx() + (self.winfo_width()  - win.winfo_width())  // 2
+        y = self.winfo_rooty() + (self.winfo_height() - win.winfo_height()) // 2
+        win.geometry(f"+{x}+{y}")
+        self._feedback_text.focus_set()
+
+    def _submit_feedback(self):
+        msg = self._feedback_text.get("1.0", "end").strip()
+        if not msg:
+            self._feedback_status.set("Please write something first.")
+            return
+
+        self._feedback_send_btn.config(state="disabled")
+        self._feedback_status.set("Sending...")
+
+        def _post():
+            try:
+                import json, urllib.request
+                payload = json.dumps({
+                    "embeds": [{
+                        "title": "Voxarah User Feedback",
+                        "description": msg,
+                        "color": 0xF5C518,
+                        "footer": {"text": f"Voxarah v{APP_VERSION}"},
+                    }]
+                }).encode("utf-8")
+                req = urllib.request.Request(
+                    self._WEBHOOK,
+                    data=payload,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+                with urllib.request.urlopen(req, timeout=10) as r:
+                    success = r.status == 204
+            except Exception:
+                success = False
+
+            self.after(0, lambda: self._feedback_done(success))
+
+        threading.Thread(target=_post, daemon=True).start()
+
+    def _feedback_done(self, success):
+        if success:
+            self._feedback_status.set("Feedback sent. Thank you!")
+            self._feedback_text.config(state="disabled")
+            self.after(2000, lambda: self._feedback_win.destroy()
+                       if self._feedback_win.winfo_exists() else None)
+        else:
+            self._feedback_status.set("Failed to send. Check your connection.")
+            self._feedback_send_btn.config(state="normal")
 
     def _check_for_updates(self, forced=False):
         if not getattr(sys, "frozen", False):
