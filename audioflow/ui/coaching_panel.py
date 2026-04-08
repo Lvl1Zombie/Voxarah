@@ -11,6 +11,7 @@ from coaching.characters import (
 )
 from coaching.profiles import score_recording, get_all_profiles, get_profile_info
 from core.history import save_session, load_history, build_record
+from core.retake  import find_retake_regions, retake_summary
 from ui.design import *
 
 DIFF_COLORS = {
@@ -427,7 +428,33 @@ class StyleCoachingPanel:
         self._tips_text.config(state="disabled")
 
         self._last_report = report
+        self._refresh_retake(results, report)
         return report
+
+    def _refresh_retake(self, results, report):
+        """Update the Retake Guide with region-specific coaching."""
+        for w in self._retake_regions_frame.winfo_children():
+            w.destroy()
+
+        suggestions = find_retake_regions(results, report)
+        summary     = retake_summary(suggestions, report.get("overall", 0))
+        self._retake_summary_var.set(summary)
+
+        for s in suggestions:
+            row = tk.Frame(self._retake_regions_frame, bg=CARBON_2)
+            row.pack(fill="x", pady=(6, 0))
+
+            # Time badge
+            badge = tk.Label(row, text=s["label"],
+                              font=("Consolas", 9, "bold"),
+                              fg=BLACK, bg=YELLOW, padx=6, pady=2)
+            badge.pack(side="left", anchor="n", pady=(2, 0))
+
+            # Reason text
+            tk.Label(row, text=s["reason"],
+                     font=FONT_SMALL, fg=TEXT_MUTED, bg=CARBON_2,
+                     anchor="w", justify="left", wraplength=620,
+                     padx=8).pack(side="left", fill="x", expand=True)
 
     def _get_ai_coaching(self):
         if not self.ai_coach or not self._last_report:
@@ -550,6 +577,31 @@ class StyleCoachingPanel:
         _sec_label(right_m, "Style Tips", bg=BG)
         self._tips_text = _text_box(right_m, height=6, fg_color=YELLOW, bg=CARBON_2)
         self._tips_text.pack(fill="both", expand=True)
+
+        # ── Retake Guide ──────────────────────────────────────────
+        tk.Frame(p, bg=EDGE, height=1).pack(fill="x", padx=16, pady=(6, 0))
+
+        retake_hdr = tk.Frame(p, bg=BG)
+        retake_hdr.pack(fill="x", padx=16, pady=(6, 2))
+        tk.Label(retake_hdr, text="\u27a9  RETAKE GUIDE", font=FONT_MONO,
+                 fg=YELLOW, bg=BG).pack(side="left")
+
+        self._retake_frame = tk.Frame(p, bg=CARBON_2,
+                                       highlightthickness=1,
+                                       highlightbackground=EDGE_BRIGHT)
+        self._retake_frame.pack(fill="x", padx=16, pady=(0, 6))
+        tk.Frame(self._retake_frame, bg=YELLOW, width=3).pack(side="left", fill="y")
+        self._retake_inner = tk.Frame(self._retake_frame, bg=CARBON_2)
+        self._retake_inner.pack(side="left", fill="both", expand=True,
+                                 padx=10, pady=8)
+        self._retake_summary_var = tk.StringVar(
+            value="Analyze a recording to get retake guidance.")
+        tk.Label(self._retake_inner, textvariable=self._retake_summary_var,
+                 font=("Segoe UI", 10, "bold"), fg=TEXT,
+                 bg=CARBON_2, anchor="w", wraplength=700,
+                 justify="left").pack(fill="x")
+        self._retake_regions_frame = tk.Frame(self._retake_inner, bg=CARBON_2)
+        self._retake_regions_frame.pack(fill="x", pady=(4, 0))
 
         tk.Frame(p, bg=YELLOW, height=1).pack(fill="x", padx=16, pady=(4, 0))
 
