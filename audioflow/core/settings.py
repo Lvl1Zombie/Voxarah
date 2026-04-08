@@ -16,6 +16,8 @@ DEFAULTS = {
     "stutter_window":          0.8,     # seconds — look-back window for stutter detection
     "detect_stutters":         True,
     "detect_unclear":          True,
+    "detect_breaths":          True,
+    "detect_mouth_noises":     True,
 
     # ── Coaching Settings ──────────────────────────────────────────
     "coaching_profile":        "Narrator / Documentary",
@@ -75,6 +77,7 @@ class SettingsManager:
         keys = [
             "silence_threshold_db", "min_silence_duration",
             "max_pause_duration", "stutter_window",
-            "detect_stutters", "detect_unclear"
+            "detect_stutters", "detect_unclear",
+            "detect_breaths", "detect_mouth_noises"
         ]
         return {k: self.get(k) for k in keys}

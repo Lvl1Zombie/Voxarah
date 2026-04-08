@@ -13,9 +13,17 @@ import os
 import tempfile
 import shutil
 import subprocess
+import time
+
+try:
+    import sounddevice as _sd
+    import numpy as _np
+    _PLAYBACK_OK = True
+except ImportError:
+    _PLAYBACK_OK = False
 
 from core.settings        import SettingsManager
-from core.analyzer        import AudioAnalyzer, build_cleaned_wav, build_label_file
+from core.analyzer        import AudioAnalyzer, build_cleaned_wav, build_cleaned_samples, build_label_file
 from core.recorder        import VoxRecorder
 from core.ai_coach        import AICoach
 from core.updater         import Updater
@@ -66,6 +74,12 @@ class AudioFlowApp(tk.Tk):
         self.updater   = Updater(current_version=APP_VERSION)
         self.results   = None
         self._wav_path = None
+
+        # Playback state
+        self._play_start_time  = 0.0
+        self._play_duration    = 0.0
+        self._play_active      = False
+        self._cleaned_samples  = None   # cached after analysis
 
         self._build_titlebar()
         self._build_tabbar()
@@ -362,9 +376,11 @@ class AudioFlowApp(tk.Tk):
         # Toggles
         s3 = lsec(left, "Flags")
         self._toggles = {}
-        for label, key in [("Detect Stutters", "detect_stutters"),
-                            ("Flag Unclear",    "detect_unclear"),
-                            ("Trim Pauses",     "detect_stutters")]:
+        for label, key in [("Detect Stutters",   "detect_stutters"),
+                            ("Flag Unclear",      "detect_unclear"),
+                            ("Detect Breaths",    "detect_breaths"),
+                            ("Detect Mouth Noise","detect_mouth_noises"),
+                            ("Trim Pauses",       "detect_stutters")]:
             tog = LamboToggle(s3, label, key,
                               value=bool(self.settings.get(key)),
                               on_change=lambda k, v: self.settings.set(k, v),
@@ -411,10 +427,12 @@ class AudioFlowApp(tk.Tk):
 
         # Stats row
         self._stat_defs = [
-            ("pause_count",   "PAUSES TRIMMED", True),
-            ("stutter_count", "STUTTERS",       False),
-            ("unclear_count", "UNCLEAR",        False),
-            ("time_saved",    "TIME SAVED",     False),
+            ("pause_count",       "PAUSES TRIMMED", True),
+            ("stutter_count",     "STUTTERS",       False),
+            ("unclear_count",     "UNCLEAR",        False),
+            ("breath_count",      "BREATHS",        False),
+            ("mouth_noise_count", "MOUTH NOISE",    False),
+            ("time_saved",        "TIME SAVED",     False),
         ]
         self._stat_values = {key: "—" for key, _, _ in self._stat_defs}
 
@@ -455,6 +473,35 @@ class AudioFlowApp(tk.Tk):
         self._waveform.after(200, self._waveform._redraw)
         tk.Frame(right, bg=EDGE, height=1).pack(fill="x")
 
+        # ── Playback bar ──
+        pb = tk.Frame(right, bg=CARBON_2, height=34)
+        pb.pack(fill="x")
+        pb.pack_propagate(False)
+
+        self._play_orig_btn = GhostButton(pb, "▶  ORIGINAL",
+                                          self._play_original, bg=CARBON_2)
+        self._play_orig_btn.pack(side="left", padx=(8, 2), pady=4)
+
+        tk.Frame(pb, bg=SEP_COLOR, width=1).pack(side="left", fill="y", pady=6)
+
+        self._play_clean_btn = GhostButton(pb, "▶  EDITED",
+                                           self._play_cleaned, bg=CARBON_2)
+        self._play_clean_btn.pack(side="left", padx=(2, 2), pady=4)
+        self._play_clean_btn.config(state="disabled")
+
+        tk.Frame(pb, bg=SEP_COLOR, width=1).pack(side="left", fill="y", pady=6)
+
+        self._play_stop_btn = GhostButton(pb, "■  STOP",
+                                          self._stop_playback, bg=CARBON_2)
+        self._play_stop_btn.pack(side="left", padx=(2, 8), pady=4)
+        self._play_stop_btn.config(state="disabled")
+
+        self._play_timer_var = tk.StringVar(value="")
+        tk.Label(pb, textvariable=self._play_timer_var,
+                 font=FONT_MONO, fg=TEXT_MUTED, bg=CARBON_2).pack(side="right", padx=12)
+
+        tk.Frame(right, bg=EDGE, height=1).pack(fill="x")
+
         # ── Issues header bar ──
         issues_bar = tk.Frame(right, bg=CARBON_1, height=28)
         issues_bar.pack(fill="x")
@@ -490,7 +537,8 @@ class AudioFlowApp(tk.Tk):
             c.after(100, self._draw_stat_cards)
             return
 
-        card_w = (W - 3) // 4
+        n_cards = len(self._stat_defs)
+        card_w = (W - (n_cards - 1)) // n_cards
         gap = 1
 
         for i, (key, label, accent) in enumerate(self._stat_defs):
@@ -507,7 +555,8 @@ class AudioFlowApp(tk.Tk):
             val = self._stat_values.get(key, "—")
             if accent:
                 fg = YELLOW
-            elif key in ("stutter_count", "unclear_count") and str(val) == "0":
+            elif key in ("stutter_count", "unclear_count",
+                         "breath_count", "mouth_noise_count") and str(val) == "0":
                 fg = GREEN_OK
             else:
                 fg = TEXT
@@ -559,6 +608,10 @@ class AudioFlowApp(tk.Tk):
         self._filepath_var.set(fname)
         self._set_status(f"Loaded: {fname}")
         self.results = None
+        self._cleaned_samples = None
+        self._stop_playback()
+        if _PLAYBACK_OK:
+            self._play_clean_btn.config(state="disabled")
         self._clear_results()
         try:
             kb   = os.path.getsize(path) / 1024
@@ -789,12 +842,20 @@ class AudioFlowApp(tk.Tk):
         if not self.results:
             return
         stats = self.results["stats"]
-        self._stat_values["pause_count"]   = str(stats["pause_count"])
-        self._stat_values["stutter_count"] = str(stats["stutter_count"])
-        self._stat_values["unclear_count"] = str(stats["unclear_count"])
-        self._stat_values["time_saved"]    = f"{stats['time_saved']:.1f}s"
+        self._stat_values["pause_count"]       = str(stats["pause_count"])
+        self._stat_values["stutter_count"]     = str(stats["stutter_count"])
+        self._stat_values["unclear_count"]     = str(stats["unclear_count"])
+        self._stat_values["breath_count"]      = str(stats["breath_count"])
+        self._stat_values["mouth_noise_count"] = str(stats["mouth_noise_count"])
+        self._stat_values["time_saved"]        = f"{stats['time_saved']:.1f}s"
         self._draw_stat_cards()
         self._flag_tree.delete_all()
+
+        # Cache cleaned samples and enable the CLEANED playback button
+        self._cleaned_samples = None   # invalidate stale cache
+        if _PLAYBACK_OK:
+            self._play_clean_btn.config(state="normal")
+            self._play_orig_btn.config(state="normal")
 
         sr       = self.results["sample_rate"]
         n_samples = len(self.results["samples"])
@@ -835,6 +896,75 @@ class AudioFlowApp(tk.Tk):
 
         if hasattr(self, "_coaching_manager"):
             self._coaching_manager.set_results(self.results)
+
+    # ── Playback ──────────────────────────────────────────────────
+
+    def _play_original(self):
+        if not self.results or not _PLAYBACK_OK:
+            return
+        samples = _np.asarray(self.results['samples'], dtype=_np.float32)
+        sr      = self.results['sample_rate']
+        self._start_playback(samples, sr)
+
+    def _play_cleaned(self):
+        if not self.results or not _PLAYBACK_OK:
+            return
+        try:
+            if self._cleaned_samples is None:
+                self._cleaned_samples, _ = build_cleaned_samples(
+                    self.results, self.settings.analysis_settings())
+            sr  = self.results['sample_rate']
+            n_b = len(self.results.get('breaths', []))
+            n_m = len(self.results.get('mouth_noises', []))
+            n_p = len(self.results.get('long_pauses', []))
+            parts = []
+            if n_b: parts.append(f"{n_b} breath{'s' if n_b > 1 else ''}")
+            if n_m: parts.append(f"{n_m} mouth noise{'s' if n_m > 1 else ''}")
+            if n_p: parts.append(f"{n_p} pause{'s' if n_p > 1 else ''} trimmed")
+            summary = "Edited: " + (", ".join(parts) if parts else "no changes — recording is clean")
+            self._set_status(summary)
+            audio = _np.ascontiguousarray(self._cleaned_samples, dtype=_np.float32)
+            self._start_playback(audio, sr)
+        except Exception as e:
+            messagebox.showerror("Playback Error", str(e))
+
+    def _start_playback(self, samples, sr):
+        _sd.stop()
+        _sd.play(samples, samplerate=sr)
+        self._play_start_time = time.monotonic()
+        self._play_duration   = len(samples) / sr
+        self._play_active     = True
+        self._play_stop_btn.config(state="normal")
+        self._play_timer_var.set("0:00.0")
+        self._playback_tick()
+
+    def _stop_playback(self):
+        if _PLAYBACK_OK:
+            _sd.stop()
+        self._play_active = False
+        if hasattr(self, "_play_stop_btn"):
+            self._play_stop_btn.config(state="disabled")
+        if hasattr(self, "_play_timer_var"):
+            self._play_timer_var.set("")
+        if hasattr(self, "_waveform"):
+            self._waveform.set_playhead(0.0)
+
+    def _playback_tick(self):
+        if not self._play_active:
+            return
+        elapsed = time.monotonic() - self._play_start_time
+        if elapsed >= self._play_duration or not _sd.get_stream().active:
+            self._waveform.set_playhead(1.0)
+            self._stop_playback()
+            return
+        frac = elapsed / self._play_duration
+        self._waveform.set_playhead(frac)
+        m = int(elapsed // 60)
+        s = elapsed % 60
+        dm = int(self._play_duration // 60)
+        ds = self._play_duration % 60
+        self._play_timer_var.set(f"{m}:{s:04.1f}  /  {dm}:{ds:04.1f}")
+        self.after(30, self._playback_tick)
 
     def _export_wav(self):
         if not self.results:
@@ -982,6 +1112,8 @@ class AudioFlowApp(tk.Tk):
         row("Stutter Window (s)",            "stutter_window",        "float")
         row("Detect Stutters",               "detect_stutters",       "bool")
         row("Detect Unclear Audio",          "detect_unclear",        "bool")
+        row("Detect Breaths",                "detect_breaths",        "bool")
+        row("Detect Mouth Noises",           "detect_mouth_noises",   "bool")
 
         section("Coaching")
         row("Default Voice Profile",         "coaching_profile",      "choice",

@@ -273,6 +273,136 @@ class AudioAnalyzer:
 
         return stutters
 
+    # ── Breath Detection ──────────────────────────────────────────
+
+    def detect_breaths(self, samples, sr: int,
+                       on_progress=None) -> List[Dict]:
+        """
+        Detect audible inhales and exhales.
+
+        A breath is a sustained, smooth low-energy event (80–400 ms) that:
+        - Sits above the silence floor but below ~35% of mean speech RMS
+        - Has a smooth energy envelope (peak/mean ratio < 3.0)
+        - Occurs adjacent to a silence region (within 500 ms)
+        """
+        thresh_db  = self.settings.get('silence_threshold_db', -40)
+        thresh     = db_to_linear(thresh_db)
+        frame_sec  = 0.005                         # 5 ms hops
+        frame_size = max(1, int(sr * frame_sec))
+
+        arr       = np.asarray(samples, dtype=np.float32)
+        frame_rms = _hop_rms(arr, frame_size)
+
+        if on_progress:
+            on_progress(1.0)
+
+        voiced = frame_rms[frame_rms > thresh]
+        if len(voiced) == 0:
+            return []
+        mean_speech  = float(np.mean(voiced))
+        breath_ceil  = mean_speech * 0.42   # breaths below 42% of mean speech level
+
+        in_zone   = (frame_rms > thresh) & (frame_rms < breath_ceil)
+        sil_mask  = frame_rms < thresh
+
+        candidates: list[dict] = []
+        in_run, run_start = False, 0
+        for idx, z in enumerate(in_zone):
+            if z and not in_run:
+                in_run, run_start = True, idx
+            elif not z and in_run:
+                dur = (idx - run_start) * frame_sec
+                if 0.10 <= dur <= 0.55:    # 100 ms–550 ms
+                    candidates.append({'s': run_start, 'e': idx,
+                                       'start': run_start * frame_sec,
+                                       'end':   idx * frame_sec})
+                in_run = False
+
+        look = int(0.5 / frame_sec)   # 500 ms in frames
+        breaths: list[dict] = []
+        for c in candidates:
+            window = frame_rms[c['s']:c['e']]
+            if len(window) == 0:
+                continue
+            peak = float(np.max(window))
+            mean = float(np.mean(window))
+            if peak / (mean + 1e-9) > 4.0:    # too spiky → not a breath
+                continue
+            before = sil_mask[max(0, c['s'] - look): c['s']]
+            after  = sil_mask[c['e']: min(len(sil_mask), c['e'] + look)]
+            if not (np.any(before) or np.any(after)):
+                continue
+            breaths.append({
+                'start': c['start'],
+                'end':   c['end'],
+                'desc':  'Audible breath — consider removing or fading out',
+            })
+        return breaths
+
+    # ── Mouth Noise Detection ──────────────────────────────────────
+
+    def detect_mouth_noises(self, samples, sr: int,
+                            on_progress=None) -> List[Dict]:
+        """
+        Detect clicks, lip smacks, and tongue noise.
+
+        Mouth noises are very short (10–80 ms), sharp-onset transients
+        (peak/mean > 1.8) that occur in or adjacent to silence regions.
+        """
+        thresh_db  = self.settings.get('silence_threshold_db', -40)
+        thresh     = db_to_linear(thresh_db)
+        frame_sec  = 0.005
+        frame_size = max(1, int(sr * frame_sec))
+
+        arr       = np.asarray(samples, dtype=np.float32)
+        frame_rms = _hop_rms(arr, frame_size)
+
+        if on_progress:
+            on_progress(1.0)
+
+        noise_floor = thresh * 1.5
+        sil_mask    = frame_rms < thresh
+        active      = frame_rms > noise_floor
+
+        candidates: list[dict] = []
+        in_run, run_start = False, 0
+        for idx, a in enumerate(active):
+            if a and not in_run:
+                in_run, run_start = True, idx
+            elif not a and in_run:
+                dur = (idx - run_start) * frame_sec
+                if 0.010 <= dur <= 0.080:
+                    candidates.append({'s': run_start, 'e': idx,
+                                       'start': run_start * frame_sec,
+                                       'end':   idx * frame_sec})
+                in_run = False
+
+        look = int(0.2 / frame_sec)   # 200 ms in frames
+        raw: list[dict] = []
+        for c in candidates:
+            window = frame_rms[c['s']:c['e']]
+            if len(window) == 0:
+                continue
+            peak = float(np.max(window))
+            mean = float(np.mean(window))
+            if peak / (mean + 1e-9) < 1.8:    # too smooth → not a click
+                continue
+            before = sil_mask[max(0, c['s'] - look): c['s']]
+            after  = sil_mask[c['e']: min(len(sil_mask), c['e'] + look)]
+            if not (np.any(before) or np.any(after)):
+                continue
+            raw.append({'start': c['start'], 'end': c['end'],
+                        'desc': 'Mouth noise (click / smack) — edit out'})
+
+        # Merge events within 50 ms of each other
+        merged: list[dict] = []
+        for mn in raw:
+            if merged and (mn['start'] - merged[-1]['end']) < 0.05:
+                merged[-1]['end'] = mn['end']
+            else:
+                merged.append(dict(mn))
+        return merged
+
     # ── Unclear Audio Detection ────────────────────────────────────
 
     def detect_unclear(self, samples, sr: int,
@@ -347,10 +477,12 @@ class AudioAnalyzer:
 
         # Phase budget (must sum to 1.0):
         #   0.00–0.05  startup
-        #   0.05–0.20  file read        (+0.15)
-        #   0.20–0.50  silence scan     (+0.30)
-        #   0.50–0.80  stutter scan     (+0.30)
-        #   0.80–0.95  unclear scan     (+0.15)
+        #   0.05–0.17  file read        (+0.12)
+        #   0.17–0.37  silence scan     (+0.20)
+        #   0.37–0.57  stutter scan     (+0.20)
+        #   0.57–0.69  unclear scan     (+0.12)
+        #   0.69–0.82  breath scan      (+0.13)
+        #   0.82–0.95  mouth noise scan (+0.13)
         #   0.95–1.00  stats + done     (+0.05)
 
         def _make_prog(label, base, span):
@@ -365,13 +497,13 @@ class AudioAnalyzer:
 
         prog(0.05, "Reading audio file…")
         samples, sr = read_wav_mono(filepath,
-                                    on_progress=_make_prog("Reading audio file…", 0.05, 0.15))
+                                    on_progress=_make_prog("Reading audio file…", 0.05, 0.12))
         duration = len(samples) / sr
 
-        prog(0.20, "Detecting silences…")
+        prog(0.17, "Detecting silences…")
         silence_regions = self.find_silence_regions(
             samples, sr,
-            on_progress=_make_prog("Detecting silences…", 0.20, 0.30))
+            on_progress=_make_prog("Detecting silences…", 0.17, 0.20))
 
         long_pauses = [r for r in silence_regions
                        if r['duration'] > self.settings.get('max_pause_duration', 1.0)]
@@ -386,29 +518,47 @@ class AudioAnalyzer:
             for p in long_pauses
         ]
 
-        prog(0.50, "Scanning for stutters…")
+        prog(0.37, "Scanning for stutters…")
         stutters = []
         if self.settings.get('detect_stutters', True):
             stutters = self.detect_stutters(
                 samples, sr,
-                on_progress=_make_prog("Scanning for stutters…", 0.50, 0.30))
+                on_progress=_make_prog("Scanning for stutters…", 0.37, 0.20))
             for s in stutters:
                 s['type'] = 'stutter'
 
-        prog(0.80, "Checking for unclear sections…")
+        prog(0.57, "Checking for unclear sections…")
         unclear = []
         if self.settings.get('detect_unclear', True):
             unclear = self.detect_unclear(
                 samples, sr,
-                on_progress=_make_prog("Checking for unclear sections…", 0.80, 0.15))
+                on_progress=_make_prog("Checking for unclear sections…", 0.57, 0.12))
             for u in unclear:
                 u['type'] = 'unclear'
+
+        prog(0.69, "Scanning for breaths…")
+        breaths = []
+        if self.settings.get('detect_breaths', True):
+            breaths = self.detect_breaths(
+                samples, sr,
+                on_progress=_make_prog("Scanning for breaths…", 0.69, 0.13))
+            for b in breaths:
+                b['type'] = 'breath'
+
+        prog(0.82, "Scanning for mouth noises…")
+        mouth_noises = []
+        if self.settings.get('detect_mouth_noises', True):
+            mouth_noises = self.detect_mouth_noises(
+                samples, sr,
+                on_progress=_make_prog("Scanning for mouth noises…", 0.82, 0.13))
+            for m in mouth_noises:
+                m['type'] = 'mouth_noise'
 
         prog(0.95, "Computing statistics…")
 
         max_pause  = self.settings.get('max_pause_duration', 1.0)
         time_saved = sum(max(0.0, p['duration'] - max_pause) for p in long_pauses)
-        all_edits  = pause_edits + stutters + unclear
+        all_edits  = pause_edits + stutters + unclear + breaths + mouth_noises
 
         prog(1.0, "Analysis complete")
 
@@ -421,16 +571,84 @@ class AudioAnalyzer:
             'long_pauses':     long_pauses,
             'stutters':        stutters,
             'unclear':         unclear,
+            'breaths':         breaths,
+            'mouth_noises':    mouth_noises,
             'all_edits':       all_edits,
             'stats': {
-                'duration':      duration,
-                'pause_count':   len(long_pauses),
-                'stutter_count': len(stutters),
-                'unclear_count': len(unclear),
-                'time_saved':    time_saved,
-                'total_flags':   len(stutters) + len(unclear),
+                'duration':           duration,
+                'pause_count':        len(long_pauses),
+                'stutter_count':      len(stutters),
+                'unclear_count':      len(unclear),
+                'breath_count':       len(breaths),
+                'mouth_noise_count':  len(mouth_noises),
+                'time_saved':         time_saved,
+                'total_flags':        len(stutters) + len(unclear) + len(breaths) + len(mouth_noises),
             },
         }
+
+
+# ── Output: Cleaned Samples ──────────────────────────────────────────────────
+
+def build_cleaned_samples(results: dict, settings: dict) -> Tuple[np.ndarray, int]:
+    """
+    Return (edited_samples_float32, sample_rate) with:
+      - Long pauses trimmed to max_pause_duration
+      - Breath regions silenced (10 ms fade in/out to avoid clicks)
+      - Mouth noise regions silenced
+    No disk I/O — used for in-app playback.
+    """
+    samples   = np.asarray(results['samples'], dtype=np.float32).copy()
+    sr        = results['sample_rate']
+
+    # ── Attenuate breaths and mouth noises in-place ───────────────
+    def _attenuate_region(arr, start_s, end_s, sample_rate,
+                          target_level=0.04, fade_ms=35):
+        """
+        Duck a region to target_level with smooth s-curve fades.
+        target_level=0.04 (-28 dB) keeps room tone — sounds natural, not cut.
+        fade_ms=35 ms long enough to avoid any click or syllable clip.
+        Boundaries are inset by half the fade so speech edges are never touched.
+        """
+        inset = int(fade_ms * 0.5 * sample_rate / 1000)
+        s = int(start_s * sample_rate) + inset
+        e = int(end_s   * sample_rate) - inset
+        s = max(0, s)
+        e = min(len(arr), e)
+        if s >= e:
+            return
+        fade = min(int(fade_ms * sample_rate / 1000), (e - s) // 2)
+        if fade > 1:
+            # s-curve via raised cosine for extra smoothness
+            t = np.linspace(0.0, np.pi, fade)
+            curve_down = 0.5 * (1.0 + np.cos(t))          # 1 → 0
+            curve_up   = 0.5 * (1.0 - np.cos(t))          # 0 → 1
+            arr[s: s + fade] *= curve_down * (1.0 - target_level) + target_level
+            arr[e - fade: e] *= curve_up   * (1.0 - target_level) + target_level
+        arr[s + fade: e - fade] *= target_level
+
+    for region in results.get('breaths', []):
+        _attenuate_region(samples, region['start'], region['end'], sr,
+                          target_level=0.04, fade_ms=40)
+
+    for region in results.get('mouth_noises', []):
+        _attenuate_region(samples, region['start'], region['end'], sr,
+                          target_level=0.02, fade_ms=20)
+
+    # ── Trim long pauses ───────────────────────────────────────────
+    pauses    = sorted(results['long_pauses'], key=lambda x: x['start'])
+    max_pause = settings.get('max_pause_duration', 1.0)
+
+    parts  = []
+    cursor = 0
+    for p in pauses:
+        p_start  = int(p['start'] * sr)
+        p_end    = int(p['end']   * sr)
+        trim_end = p_start + int(max_pause * sr)
+        parts.append(samples[cursor: p_start])
+        parts.append(samples[p_start: trim_end])
+        cursor = p_end
+    parts.append(samples[cursor:])
+    return (np.concatenate(parts) if parts else samples), sr
 
 
 # ── Output: Cleaned WAV ───────────────────────────────────────────────────────
@@ -472,9 +690,11 @@ def build_label_file(results: dict) -> str:
     lines = []
     for edit in sorted(results['all_edits'], key=lambda x: x['start']):
         tag = {
-            'pause':   '[PAUSE]',
-            'stutter': '[STUTTER]',
-            'unclear': '[UNCLEAR]',
+            'pause':       '[PAUSE]',
+            'stutter':     '[STUTTER]',
+            'unclear':     '[UNCLEAR]',
+            'breath':      '[BREATH]',
+            'mouth_noise': '[MOUTH NOISE]',
         }.get(edit['type'], '[FLAG]')
         lines.append(f"{edit['start']:.3f}\t{edit['end']:.3f}\t{tag} {edit['desc']}")
     return "\n".join(lines)

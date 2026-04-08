@@ -272,16 +272,30 @@ class WaveformCanvas(tk.Canvas):
         bg = kw.pop("bg", CARBON_2)
         super().__init__(parent, bg=bg, height=height,
                          highlightthickness=0, bd=0, **kw)
-        self._samples = []
-        self._flags   = []
-        self._height  = height
+        self._samples       = []
+        self._flags         = []
+        self._height        = height
+        self._playhead_frac = 0.0
         self.bind("<Configure>", lambda e: self._redraw())
 
     def load(self, samples, flags=None):
         self._samples = samples if samples is not None else []
         self._flags   = flags   if flags   is not None else []
+        self._playhead_frac = 0.0
         # Delay redraw so canvas has been laid out and has a real width
         self.after(50, self._redraw)
+
+    def set_playhead(self, fraction: float):
+        """Move the playhead to fraction (0.0–1.0) without redrawing the waveform."""
+        self._playhead_frac = max(0.0, min(1.0, fraction))
+        W = self.winfo_width()
+        H = self._height
+        px = int(W * self._playhead_frac)
+        existing = self.find_withtag("playhead")
+        if existing:
+            self.coords(existing[0], px, 0, px, H)
+        else:
+            self.create_line(px, 0, px, H, fill=YELLOW, width=2, tags="playhead")
 
     def _redraw(self):
         self.delete("all")
@@ -308,7 +322,8 @@ class WaveformCanvas(tk.Canvas):
         dur = len(self._samples)
 
         # ── Colored region backgrounds (drawn BEFORE waveform bars) ──────────
-        _tint = {"pause": TINT_PAUSE, "stutter": TINT_STUTTER, "unclear": TINT_UNCLEAR}
+        _tint = {"pause": TINT_PAUSE, "stutter": TINT_STUTTER, "unclear": TINT_UNCLEAR,
+                 "breath": TINT_BREATH, "mouth_noise": TINT_MOUTH_NOISE}
         for f in self._flags:
             start_px = int(f["start_sample"] / dur * W) if "start_sample" in f else 0
             end_px   = int(f["end_sample"]   / dur * W) if "end_sample"   in f else W
@@ -321,8 +336,10 @@ class WaveformCanvas(tk.Canvas):
         for f in self._flags:
             start_px = int(f["start_sample"] / dur * W) if "start_sample" in f else 0
             end_px   = int(f["end_sample"]   / dur * W) if "end_sample"   in f else W
-            color = RED_FLAG if f["type"] == "stutter" else \
-                    PURPLE_FLAG if f["type"] == "unclear" else YELLOW
+            color = RED_FLAG    if f["type"] == "stutter"    else \
+                    PURPLE_FLAG if f["type"] == "unclear"    else \
+                    CYAN_FLAG   if f["type"] == "breath"     else \
+                    ORANGE_FLAG if f["type"] == "mouth_noise" else YELLOW
             for px in range(start_px, end_px):
                 flag_px[px] = color
 
@@ -342,8 +359,8 @@ class WaveformCanvas(tk.Canvas):
                              fill=color, width=1)
 
         # Playhead
-        px = int(W * 0.33)
-        self.create_line(px, 0, px, H, fill=YELLOW, width=1)
+        px = int(W * self._playhead_frac)
+        self.create_line(px, 0, px, H, fill=YELLOW, width=2, tags="playhead")
 
 
 # ── Dark Scrollbar (Canvas-based — Windows-proof) ────────────────────────────
@@ -511,8 +528,8 @@ class FlagList(tk.Frame):
         row.bind("<Leave>", on_leave)
 
         # Type badge
-        fg_type = {"pause": YELLOW, "stutter": RED_FLAG,
-                   "unclear": PURPLE_FLAG}.get(flag_type.lower(), TEXT_MUTED)
+        fg_type = {"pause": YELLOW, "stutter": RED_FLAG, "unclear": PURPLE_FLAG,
+                   "breath": CYAN_FLAG, "mouth_noise": ORANGE_FLAG}.get(flag_type.lower(), TEXT_MUTED)
         type_lbl = tk.Label(row, text=flag_type.upper(),
                              font=FONT_BADGE, fg=fg_type, bg=row_bg,
                              width=10, anchor="center", padx=4)

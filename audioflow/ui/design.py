@@ -29,6 +29,8 @@ TEXT_GHOST    = "#333333"
 YELLOW_TEXT   = "#F5C518"
 RED_FLAG      = "#f76a8a"
 PURPLE_FLAG   = "#7c6af7"
+CYAN_FLAG     = "#4ab8d8"
+ORANGE_FLAG   = "#f5a623"
 GREEN_OK      = "#2a8a4a"
 
 # ── Semantic ──────────────────────────────────────────────────────────────────
@@ -60,9 +62,11 @@ FONT_BADGE    = ("Consolas", 9, "bold")
 FONT_TAB      = ("Segoe UI", 10, "bold")
 
 # ── Waveform region tints ─────────────────────────────────────────────────────
-TINT_PAUSE    = "#2a2200"   # dark yellow behind pause regions
-TINT_STUTTER  = "#1a0a10"   # dark red behind stutter regions
-TINT_UNCLEAR  = "#0e0b1f"   # dark purple behind unclear regions
+TINT_PAUSE       = "#2a2200"   # dark yellow behind pause regions
+TINT_STUTTER     = "#1a0a10"   # dark red behind stutter regions
+TINT_UNCLEAR     = "#0e0b1f"   # dark purple behind unclear regions
+TINT_BREATH      = "#051218"   # dark cyan behind breath regions
+TINT_MOUTH_NOISE = "#1a1000"   # dark orange behind mouth noise regions
 
 # ── Status bar separator ──────────────────────────────────────────────────────
 SEP_COLOR     = "#1a1a1a"

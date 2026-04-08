@@ -28,3 +28,4 @@ audioflow/assets/preview_check.png
 Thumbs.db
 Desktop.ini
 .DS_Store
+dist/*.lnk
