@@ -11,6 +11,27 @@
 </head>
 <body>
 
+<!-- ── Boot overlay (Tauri only — hidden once backend is ready) ──────────── -->
+<div id="boot-overlay">
+  <div class="boot-inner">
+    <div class="boot-wordmark">VOX<span>A</span>RAH</div>
+    <div class="boot-spinner"></div>
+    <p class="boot-msg" id="boot-msg">Starting backend…</p>
+  </div>
+</div>
+
+<!-- ── Custom title bar (Tauri frameless mode only) ──────────────────────── -->
+<div id="titlebar" data-tauri-drag-region>
+  <div class="titlebar-left" data-tauri-drag-region>
+    <span class="titlebar-wordmark">VOXARAH</span>
+  </div>
+  <div class="titlebar-controls">
+    <button class="tb-btn" onclick="titlebarMinimize()" title="Minimize">&#x2212;</button>
+    <button class="tb-btn" onclick="titlebarMaximize()" title="Maximize">&#x2610;</button>
+    <button class="tb-btn tb-close" onclick="titlebarClose()" title="Close">&#x2715;</button>
+  </div>
+</div>
+
 <div class="shell">
 
   <!-- ── Header ──────────────────────────────────────────────── -->

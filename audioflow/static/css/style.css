@@ -1044,4 +1044,101 @@ canvas { display: block; width: 100%; }
   border-bottom: 1px solid var(--border);
 }
 .tip-item:last-child { border-bottom: none; }
+
+/* ── Tauri: boot overlay ─────────────────────────────────────────────────── */
+#boot-overlay {
+  display: none;
+  position: fixed;
+  inset: 0;
+  z-index: 10000;
+  background: var(--bg, #0f0f14);
+  align-items: center;
+  justify-content: center;
+  flex-direction: column;
+  gap: 24px;
+}
+.tauri-mode #boot-overlay { display: flex; }
+.boot-inner {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+.boot-wordmark {
+  font-family: var(--font-mono);
+  font-size: 28px;
+  font-weight: 700;
+  letter-spacing: 0.25em;
+  color: var(--text);
+}
+.boot-wordmark span { color: var(--yellow, #F5C518); }
+.boot-spinner {
+  width: 36px;
+  height: 36px;
+  border: 3px solid rgba(245,197,24,0.15);
+  border-top-color: var(--yellow, #F5C518);
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.boot-msg {
+  font-family: var(--font-mono);
+  font-size: 12px;
+  color: var(--text-ghost, #555566);
+  letter-spacing: 0.05em;
+}
+
+/* ── Tauri: custom title bar ─────────────────────────────────────────────── */
+#titlebar {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 0;
+  height: 38px;
+  z-index: 9000;
+  background: #0a0a0f;
+  border-bottom: 1px solid #1e1e2e;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 0 0 14px;
+  -webkit-user-select: none;
+  user-select: none;
+}
+.tauri-mode #titlebar { display: flex; }
+/* Push shell content below title bar in Tauri mode */
+.tauri-mode .shell { padding-top: 38px; }
+.titlebar-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex: 1;
+  min-width: 0;
+}
+.titlebar-wordmark {
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.2em;
+  color: var(--text-ghost, #555566);
+}
+.titlebar-controls {
+  display: flex;
+  height: 38px;
+}
+.tb-btn {
+  width: 46px;
+  height: 38px;
+  background: transparent;
+  border: none;
+  color: #888899;
+  font-size: 14px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: background 0.15s, color 0.15s;
+  -webkit-app-region: no-drag;
+  app-region: no-drag;
+}
+.tb-btn:hover { background: rgba(255,255,255,0.06); color: #cccce0; }
+.tb-close:hover { background: #c0392b; color: #fff; }
 .tip-bullet { color: var(--accent); flex-shrink: 0; }

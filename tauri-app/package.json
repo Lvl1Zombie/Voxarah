@@ -1,0 +1,14 @@
+{
+  "name": "voxarah",
+  "version": "2.1.0",
+  "private": true,
+  "scripts": {
+    "prebuild": "node scripts/prepare-frontend.js",
+    "tauri": "tauri",
+    "dev": "npm run prebuild && tauri dev",
+    "build": "npm run prebuild && tauri build"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "^2"
+  }
+}

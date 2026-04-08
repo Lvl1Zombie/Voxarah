@@ -20,6 +20,7 @@ from typing import Any, Dict, List, Optional
 import numpy as np
 from fastapi import (BackgroundTasks, FastAPI, File, Form, HTTPException,
                      Request, UploadFile, WebSocket, WebSocketDisconnect)
+from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, JSONResponse, Response
 from fastapi.staticfiles import StaticFiles
 
@@ -250,6 +251,14 @@ def assemble_issues(results: dict) -> list:
 
 app = FastAPI(title="Voxarah", version=APP_VERSION)
 
+# Allow Tauri webview (tauri://localhost) to call the API cross-origin
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["tauri://localhost", "http://tauri.localhost", "http://localhost:8000"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 
 
@@ -271,6 +280,20 @@ def _check_ai():
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
+
+@app.get("/api/health")
+async def health():
+    """Lightweight liveness check used by the Tauri sidecar boot sequence."""
+    return {"ok": True}
+
+
+@app.post("/api/shutdown")
+async def shutdown():
+    """Gracefully stop the server (called by Tauri before window close)."""
+    import signal, os
+    os.kill(os.getpid(), signal.SIGTERM)
+    return {"ok": True}
+
 
 @app.get("/")
 async def root():

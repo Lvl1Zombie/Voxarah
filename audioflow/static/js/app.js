@@ -5,6 +5,13 @@
 
 'use strict';
 
+// ── Tauri compat ──────────────────────────────────────────────────────────────
+// IN_TAURI is true when loaded inside the Tauri webview (tauri:// protocol).
+// In that mode all API calls must be absolute since the page is not served by FastAPI.
+const IN_TAURI  = typeof window.__TAURI_INTERNALS__ !== 'undefined';
+const API_BASE  = IN_TAURI ? 'http://localhost:8000' : '';
+const WS_HOST   = IN_TAURI ? 'localhost:8000' : location.host;
+
 // ── State ─────────────────────────────────────────────────────────────────────
 const S = {
   results:       null,
@@ -24,7 +31,7 @@ let wsRetry = 0;
 
 function wsConnect() {
   const proto = location.protocol === 'https:' ? 'wss' : 'ws';
-  ws = new WebSocket(`${proto}://${location.host}/ws`);
+  ws = new WebSocket(`${proto}://${WS_HOST}/ws`);
 
   ws.onopen = () => {
     wsRetry = 0;
@@ -236,7 +243,7 @@ async function uploadFile(file) {
   fd.append('file', file);
   toast(`Loading ${file.name}…`);
   try {
-    const res = await fetch('/api/upload', { method: 'POST', body: fd });
+    const res = await fetch(`${API_BASE}/api/upload`, { method: 'POST', body: fd });
     const data = await res.json();
     if (!res.ok) throw new Error(data.detail || 'Upload failed');
     S.filename = data.filename;
@@ -507,7 +514,8 @@ async function playCleaned() {
 
 function playAudio(url) {
   stopAudio();
-  const audio = new Audio(url);
+  const src = url.startsWith('http') ? url : `${API_BASE}${url}`;
+  const audio = new Audio(src);
   S.playingAudio = audio;
   el('btn-stop').disabled = false;
 
@@ -568,10 +576,10 @@ function fmtTime(sec) {
 
 // ── Export ────────────────────────────────────────────────────────────────────
 function exportWav() {
-  window.location.href = '/api/export/wav';
+  window.location.href = `${API_BASE}/api/export/wav`;
 }
 function exportLabels() {
-  window.location.href = '/api/export/labels';
+  window.location.href = `${API_BASE}/api/export/labels`;
 }
 
 // ── Recording ────────────────────────────────────────────────────────────────
@@ -746,7 +754,7 @@ async function uploadTake(slot, file) {
   fd.append('file', file);
   toast(`Loading take ${slot+1}…`);
   try {
-    const res = await fetch(`/api/compare/upload/${slot}`, { method: 'POST', body: fd });
+    const res = await fetch(`${API_BASE}/api/compare/upload/${slot}`, { method: 'POST', body: fd });
     if (!res.ok) throw new Error((await res.json()).detail);
     el(`cmp-fname-${slot}`).textContent = file.name;
     el(`cmp-status-${slot}`).textContent = 'Ready';
@@ -945,7 +953,7 @@ async function apiFetch(url, method='GET', body=null) {
       opts.body = JSON.stringify(body);
       opts.headers['Content-Type'] = 'application/json';
     }
-    const res = await fetch(url, opts);
+    const res = await fetch(`${API_BASE}${url}`, opts);
     if (!res.ok) {
       const err = await res.json().catch(() => ({ detail: res.statusText }));
       toast(err.detail || `Error ${res.status}`, 'error');
@@ -959,8 +967,51 @@ async function apiFetch(url, method='GET', body=null) {
   }
 }
 
+// ── Tauri window controls ─────────────────────────────────────────────────────
+function titlebarMinimize() {
+  if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().minimize();
+}
+function titlebarMaximize() {
+  if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().toggleMaximize();
+}
+function titlebarClose() {
+  if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().close();
+}
+
+// ── Backend health check (Tauri sidecar startup) ──────────────────────────────
+async function waitForBackend(maxMs = 30000) {
+  const msgEl = document.getElementById('boot-msg');
+  const start  = Date.now();
+  while (Date.now() - start < maxMs) {
+    try {
+      const r = await fetch(`${API_BASE}/api/health`, { signal: AbortSignal.timeout(1500) });
+      if (r.ok) return true;
+    } catch (_) {}
+    const elapsed = Math.round((Date.now() - start) / 1000);
+    if (msgEl) msgEl.textContent = `Starting Voxarah… ${elapsed}s`;
+    await new Promise(r => setTimeout(r, 600));
+  }
+  if (msgEl) msgEl.textContent = 'Backend failed to start. Please restart the app.';
+  return false;
+}
+
 // ── Boot ──────────────────────────────────────────────────────────────────────
 async function boot() {
+  // Tauri mode: mark body class + wait for Python sidecar to be ready
+  if (IN_TAURI) {
+    document.documentElement.classList.add('tauri-mode');
+    const overlay = document.getElementById('boot-overlay');
+    const ready   = await waitForBackend();
+    if (!ready) return;
+    if (overlay) {
+      overlay.style.opacity = '0';
+      overlay.style.transition = 'opacity 0.4s';
+      setTimeout(() => { overlay.style.display = 'none'; }, 420);
+    }
+    // Show the native window now that UI is ready (window starts hidden in tauri.conf.json)
+    if (window.__TAURI__) window.__TAURI__.window.getCurrentWindow().show();
+  }
+
   initTabs();
   initFileUpload();
   wsConnect();
