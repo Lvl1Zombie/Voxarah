@@ -255,8 +255,8 @@ app = FastAPI(title="Voxarah", version=APP_VERSION)
 # Allow Tauri webview (tauri://localhost) to call the API cross-origin
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["tauri://localhost", "http://tauri.localhost", "http://localhost"],
-    allow_origin_regex=r"http://localhost:\d+",
+    allow_origins=["tauri://localhost", "https://tauri.localhost", "http://tauri.localhost", "http://localhost"],
+    allow_origin_regex=r"https?://localhost(:\d+)?",
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -268,17 +268,29 @@ app.mount("/static", StaticFiles(directory=BASE_DIR / "static"), name="static")
 async def startup():
     global _event_loop
     _event_loop = asyncio.get_event_loop()
-    # Check AI and FFMPEG in background
-    threading.Thread(target=_check_ai, daemon=True).start()
     state.ffmpeg_ok = state.ffmpeg_path is not None
+    # Check AI now, then keep polling every 30s so the app goes live
+    # automatically once the user starts Ollama — no restart needed.
+    threading.Thread(target=_ai_poll_loop, daemon=True).start()
 
 
 def _check_ai():
     online = state.ai_coach.check_status()
+    prev   = state.ai_online
     state.ai_online = online
-    _broadcast({"type": "status",
-                "ai_online": online,
-                "ffmpeg_ok": state.ffmpeg_path is not None})
+    if online != prev:   # only broadcast on change to avoid noise
+        _broadcast({"type": "status",
+                    "ai_online": online,
+                    "ffmpeg_ok": state.ffmpeg_path is not None})
+    return online
+
+
+def _ai_poll_loop():
+    import time
+    _check_ai()          # immediate check at startup
+    while True:
+        time.sleep(30)   # re-check every 30 seconds
+        _check_ai()
 
 
 # ── Routes ────────────────────────────────────────────────────────────────────
@@ -539,13 +551,16 @@ async def coaching_ai(body: Dict[str, Any]):
     if not state.results:
         raise HTTPException(404, "No results.")
     if not state.ai_online:
-        raise HTTPException(503, "AI offline (Ollama not running).")
+        raise HTTPException(503, "AI offline. Start Ollama and it will connect automatically.")
 
     profile  = body.get("profile", state.coaching_profile or
                         state.settings.get("coaching_profile"))
-    report   = state.coaching_report or score_recording(state.results, profile)
-    feedback = report.get("feedback", [])
-    scores   = report.get("scores", {})
+    report       = state.coaching_report or score_recording(state.results, profile)
+    feedback     = report.get("feedback", [])
+    scores       = report.get("scores", {})
+    raw_stats    = state.results.get("stats", {})
+    pitch_stats  = state.results.get("pitch_stats", {})
+    character_name = body.get("character_name")
 
     def on_token(t: str):
         _broadcast({"type": "ai_token", "token": t})
@@ -557,6 +572,9 @@ async def coaching_ai(body: Dict[str, Any]):
         profile_name=profile,
         scores=scores,
         feedback=feedback,
+        raw_stats=raw_stats,
+        pitch_stats=pitch_stats,
+        character_name=character_name,
         on_token=on_token,
         on_done=on_done,
     )
@@ -567,6 +585,26 @@ async def coaching_ai(body: Dict[str, Any]):
 async def coaching_ai_cancel():
     state.ai_coach.cancel()
     return {"status": "cancelled"}
+
+
+@app.post("/api/coaching/ai/chat")
+async def coaching_ai_chat(body: Dict[str, Any]):
+    """Continue the coaching conversation with a follow-up message."""
+    if not state.ai_online:
+        raise HTTPException(503, "AI offline. Start Ollama and it will connect automatically.")
+
+    messages  = body.get("messages", [])   # [{role, content}, ...]
+    if not messages:
+        raise HTTPException(400, "No messages provided.")
+
+    def on_token(t: str):
+        _broadcast({"type": "ai_chat_token", "token": t})
+
+    def on_done(text: str):
+        _broadcast({"type": "ai_chat_done", "text": text})
+
+    state.ai_coach.chat(messages=messages, on_token=on_token, on_done=on_done)
+    return {"status": "started"}
 
 
 # ── Characters ────────────────────────────────────────────────────────────────
@@ -737,5 +775,5 @@ async def websocket_endpoint(ws: WebSocket):
 
 if __name__ == "__main__":
     import uvicorn
-    port = int(os.environ.get("VOXARAH_PORT", 8000))
+    port = int(os.environ.get("VOXARAH_PORT", 47891))
     uvicorn.run(app, host="127.0.0.1", port=port, log_level="warning")

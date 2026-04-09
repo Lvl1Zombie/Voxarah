@@ -13,14 +13,15 @@ OLLAMA_URL = "http://localhost:11434"
 DEFAULT_MODEL = "llama3.1:8b"
 
 
-def _build_prompt(profile_name, scores, feedback, character_name=None):
+def _build_prompt(profile_name, scores, feedback, character_name=None,
+                  raw_stats=None, pitch_stats=None):
     """Build a coaching prompt from analysis results."""
     lines = []
     if character_name:
-        lines.append(f"You are a voice acting coach. The student just recorded a take "
+        lines.append(f"You are a world-class voice acting coach. The student just recorded a take "
                      f"for the character \"{character_name}\" (style: {profile_name}).")
     else:
-        lines.append(f"You are a voice acting coach. The student just recorded a take "
+        lines.append(f"You are a world-class voice acting coach. The student just recorded a take "
                      f"in the \"{profile_name}\" voice style.")
 
     lines.append(f"\nOverall score: {scores.get('overall', '?')}/100 "
@@ -28,26 +29,68 @@ def _build_prompt(profile_name, scores, feedback, character_name=None):
     lines.append("\nDimension scores (0-100):")
 
     dim_names = {
-        'pause_ratio': 'Pacing / Pause Ratio',
-        'stutters': 'Delivery / Stutters',
-        'pause_length': 'Pause Length Control',
-        'consistency': 'Energy Consistency',
-        'clarity': 'Clarity / Intelligibility',
-        'speech_rate': 'Speech Rate',
+        'pause_ratio':   'Pacing / Pause Ratio',
+        'stutters':      'Delivery / Stutters',
+        'pause_length':  'Pause Length Control',
+        'consistency':   'Energy Consistency',
+        'clarity':       'Clarity / Intelligibility',
+        'speech_rate':   'Speech Rate',
         'dynamic_range': 'Dynamic Range',
+        'delivery':      'Delivery',
+        'pacing':        'Pacing',
+        'expression':    'Expression',
+        'pauseControl':  'Pause Control',
     }
     for key, val in scores.get('scores', {}).items():
-        label = dim_names.get(key, key)
-        lines.append(f"  - {label}: {val}")
+        lines.append(f"  - {dim_names.get(key, key)}: {val}")
+
+    # Raw analyzer stats — concrete numbers for the AI to reason from
+    if raw_stats:
+        lines.append("\nRaw recording measurements:")
+        wpm = raw_stats.get('wpm')
+        if wpm:
+            lines.append(f"  - Speech rate: {wpm:.0f} words per minute")
+        pause_count = raw_stats.get('pause_count')
+        if pause_count is not None:
+            lines.append(f"  - Pauses detected: {pause_count}")
+        time_saved = raw_stats.get('time_saved')
+        if time_saved is not None:
+            lines.append(f"  - Dead air removed: {time_saved:.1f} seconds")
+        pause_ratio = raw_stats.get('pause_ratio')
+        if pause_ratio is not None:
+            lines.append(f"  - Pause ratio: {pause_ratio:.1%} of total recording")
+        lines.append(f"  - Stutters: {raw_stats.get('stutter_count', 0)}")
+        lines.append(f"  - Unclear sections: {raw_stats.get('unclear_count', 0)}")
+        lines.append(f"  - Audible breaths: {raw_stats.get('breath_count', 0)}")
+        lines.append(f"  - Mouth noises: {raw_stats.get('mouth_noise_count', 0)}")
+        duration = raw_stats.get('duration') or raw_stats.get('total_duration')
+        if duration:
+            lines.append(f"  - Recording duration: {duration:.1f} seconds")
+
+    if pitch_stats:
+        lines.append("\nPitch analysis:")
+        rating = pitch_stats.get('rating', '')
+        if rating:
+            lines.append(f"  - Pitch variation rating: {rating}")
+        std_hz = pitch_stats.get('std_hz')
+        if std_hz is not None:
+            desc = 'expressive' if std_hz > 30 else 'moderate' if std_hz > 15 else 'flat/monotone'
+            lines.append(f"  - Pitch standard deviation: {std_hz:.1f} Hz ({desc})")
+        mean_hz = pitch_stats.get('mean_hz')
+        if mean_hz is not None:
+            lines.append(f"  - Average pitch: {mean_hz:.0f} Hz")
 
     if feedback:
         lines.append("\nDetected issues:")
         for dim, msg in feedback:
             lines.append(f"  - {dim}: {msg}")
 
-    lines.append("\nGive specific, actionable coaching advice in 3-5 sentences. "
-                 "Be encouraging but direct. Focus on the weakest dimensions. "
-                 "If the score is high, congratulate and suggest refinements.")
+    lines.append(
+        "\nBased on these specific measurements, give actionable coaching advice in 4-6 sentences. "
+        "Reference the actual numbers (WPM, stutter count, pitch variation etc.) when relevant. "
+        "Be encouraging but direct. Focus on the 1-2 weakest areas. "
+        "If the score is high, congratulate and suggest refinements."
+    )
     return "\n".join(lines)
 
 
@@ -135,7 +178,8 @@ class AICoach:
         self._cancel.set()
 
     def get_coaching(self, profile_name, scores, feedback,
-                     character_name=None, on_token=None, on_done=None):
+                     character_name=None, raw_stats=None, pitch_stats=None,
+                     on_token=None, on_done=None):
         """
         Generate coaching advice. Streams tokens via on_token(str) callback.
         Calls on_done(full_text) when complete.
@@ -145,7 +189,8 @@ class AICoach:
         self._cancel.clear()
 
         def _run():
-            prompt = _build_prompt(profile_name, scores, feedback, character_name)
+            prompt = _build_prompt(profile_name, scores, feedback,
+                                   character_name, raw_stats, pitch_stats)
 
             if not self._online:
                 # Template fallback
@@ -202,3 +247,58 @@ class AICoach:
         t = threading.Thread(target=_run, daemon=True)
         t.start()
         return t
+
+    def chat(self, messages, on_token=None, on_done=None):
+        """
+        Continue a conversation with the AI using a list of
+        {role: 'user'|'assistant', content: str} messages.
+        Streams via on_token, calls on_done when complete.
+        """
+        self._cancel.clear()
+
+        def _run():
+            if not self._online:
+                text = "AI is offline. Start Ollama to continue the conversation."
+                if on_token: on_token(text)
+                if on_done:  on_done(text)
+                return
+
+            try:
+                # Ollama /api/chat supports multi-turn messages natively
+                body = json.dumps({
+                    "model":    self.model,
+                    "messages": messages,
+                    "stream":   True,
+                }).encode()
+
+                req = urllib.request.Request(
+                    f"{OLLAMA_URL}/api/chat",
+                    data=body,
+                    headers={"Content-Type": "application/json"},
+                    method="POST",
+                )
+
+                full_text = []
+                with urllib.request.urlopen(req, timeout=120) as resp:
+                    for line in resp:
+                        if self._cancel.is_set():
+                            break
+                        try:
+                            chunk = json.loads(line)
+                            token = chunk.get("message", {}).get("content", "")
+                            if token:
+                                full_text.append(token)
+                                if on_token: on_token(token)
+                            if chunk.get("done"):
+                                break
+                        except json.JSONDecodeError:
+                            continue
+
+                if on_done: on_done("".join(full_text))
+
+            except Exception as e:
+                err = f"Chat error: {e}"
+                if on_token: on_token(err)
+                if on_done:  on_done(err)
+
+        threading.Thread(target=_run, daemon=True).start()

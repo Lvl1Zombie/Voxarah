@@ -1,24 +1,14 @@
-use std::net::TcpListener;
 use std::sync::Mutex;
-use tauri::{AppHandle, Manager, WebviewWindow};
+use tauri::{AppHandle, Manager};
 use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandChild;
 
-pub struct BackendProcess(pub Mutex<Option<CommandChild>>);
-pub struct BackendPort(pub u16);
+const PORT: u16 = 47891;
 
-/// Find a free TCP port on localhost.
-fn find_free_port() -> u16 {
-    TcpListener::bind("127.0.0.1:0")
-        .expect("failed to bind ephemeral port")
-        .local_addr()
-        .unwrap()
-        .port()
-}
+pub struct BackendProcess(pub Mutex<Option<CommandChild>>);
 
 pub fn run() {
-    let port = find_free_port();
-    eprintln!("[voxarah] using port {port}");
+    eprintln!("[voxarah] using port {PORT}");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -29,15 +19,9 @@ pub fn run() {
             }
         }))
         .manage(BackendProcess(Mutex::new(None)))
-        .manage(BackendPort(port))
         .setup(move |app| {
             let handle = app.handle().clone();
-            spawn_backend(&handle, port);
-
-            // Inject the port into the WebView before the page logic runs.
-            if let Some(win) = app.get_webview_window("main") {
-                inject_port(&win, port);
-            }
+            spawn_backend(&handle, PORT);
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -53,13 +37,6 @@ pub fn run() {
         })
         .run(tauri::generate_context!())
         .expect("Voxarah failed to start");
-}
-
-/// Inject `window.VOXARAH_PORT` so the frontend JS can construct API URLs.
-fn inject_port(win: &WebviewWindow, port: u16) {
-    let script = format!("window.VOXARAH_PORT = {port};");
-    // eval_script runs before page scripts on the next navigation.
-    let _ = win.eval(&script);
 }
 
 fn spawn_backend(app: &AppHandle, port: u16) {

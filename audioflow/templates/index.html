@@ -20,19 +20,17 @@
   </div>
 </div>
 
-<!-- ── Custom title bar (Tauri frameless mode only) ──────────────────────── -->
-<div id="titlebar" data-tauri-drag-region>
-  <div class="titlebar-left" data-tauri-drag-region>
-    <span class="titlebar-wordmark">VOXARAH</span>
-  </div>
-  <div class="titlebar-controls">
-    <button class="tb-btn" onclick="titlebarMinimize()" title="Minimize">&#x2212;</button>
-    <button class="tb-btn" onclick="titlebarMaximize()" title="Maximize">&#x2610;</button>
-    <button class="tb-btn tb-close" onclick="titlebarClose()" title="Close">&#x2715;</button>
-  </div>
-</div>
-
 <div class="shell">
+
+  <!-- ── Title bar (Tauri frameless mode only) ─────────────── -->
+  <div id="titlebar" data-tauri-drag-region>
+    <span class="titlebar-title" data-tauri-drag-region>Voxarah</span>
+    <div class="titlebar-ctrls">
+      <button class="tb-btn" onclick="titlebarMinimize()" title="Minimize">&#x2212;</button>
+      <button class="tb-btn" onclick="titlebarMaximize()" title="Maximize">&#x2610;</button>
+      <button class="tb-btn tb-close" onclick="titlebarClose()" title="Close">&#x2715;</button>
+    </div>
+  </div>
 
   <!-- ── Header ──────────────────────────────────────────────── -->
   <header class="header">
@@ -60,35 +58,14 @@
     </div>
   </header>
 
-  <!-- ── Sidebar ─────────────────────────────────────────────── -->
-  <nav class="sidebar">
-    <div class="nav">
-      <button class="nav-item active" data-tab="editor">
-        <span class="nav-icon">🎙️</span> Editor
-      </button>
-      <button class="nav-item" data-tab="coaching">
-        <span class="nav-icon">📊</span> Coaching
-      </button>
-      <button class="nav-item" data-tab="compare">
-        <span class="nav-icon">⚖️</span> Compare
-      </button>
-      <button class="nav-item" data-tab="characters">
-        <span class="nav-icon">🎭</span> Characters
-      </button>
-      <button class="nav-item" data-tab="history">
-        <span class="nav-icon">📁</span> History
-      </button>
-      <div class="nav-divider"></div>
-      <button class="nav-item" data-tab="settings">
-        <span class="nav-icon">⚙️</span> Settings
-      </button>
-    </div>
-
-    <div class="sidebar-footer">
-      <button class="btn btn-ghost btn-sm btn-full" onclick="openFeedback()">
-        💬 Give Feedback
-      </button>
-    </div>
+  <!-- ── Tab bar ────────────────────────────────────────────── -->
+  <nav class="tabbar">
+    <button class="nav-item active" data-tab="editor">Editor</button>
+    <button class="nav-item" data-tab="coaching">Coaching</button>
+    <button class="nav-item" data-tab="compare">Compare</button>
+    <button class="nav-item" data-tab="history">History</button>
+    <div class="nav-spacer"></div>
+    <button class="nav-item" data-tab="settings">Settings</button>
   </nav>
 
   <!-- ── Main ────────────────────────────────────────────────── -->
@@ -151,12 +128,28 @@
 
             <!-- Recording -->
             <div class="flex gap-2 mt-2">
-              <button class="btn btn-ghost btn-sm grow" id="btn-rec-start" onclick="startRec()">● REC</button>
-              <button class="btn btn-danger btn-sm" id="btn-rec-stop" onclick="stopRec()" style="display:none">■ STOP</button>
+              <button class="btn btn-ghost btn-sm grow" id="btn-rec-start">● REC</button>
+              <button class="btn btn-danger btn-sm" id="btn-rec-stop" style="display:none">■ STOP</button>
             </div>
             <div class="rec-indicator mt-2" id="rec-indicator">
               <div class="rec-dot"></div>
               <span id="rec-timer">0:00.0</span>
+            </div>
+          </div>
+
+          <!-- Analyze button -->
+          <button class="btn btn-yellow btn-lg btn-full" id="btn-analyze" disabled>
+            ⚡ ANALYZE RECORDING
+          </button>
+
+          <!-- Progress -->
+          <div class="progress-wrap" id="progress-wrap" style="display:none">
+            <div class="progress-header">
+              <span id="progress-msg">Analyzing...</span>
+              <span id="progress-pct">0%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-fill" id="progress-fill"></div>
             </div>
           </div>
 
@@ -210,22 +203,6 @@
             </div>
           </div>
 
-          <!-- Actions -->
-          <button class="btn btn-yellow btn-lg btn-full" id="btn-analyze" onclick="runAnalysis()" disabled>
-            ⚡ ANALYZE RECORDING
-          </button>
-
-          <!-- Progress -->
-          <div class="progress-wrap" id="progress-wrap" style="display:none">
-            <div class="progress-header">
-              <span id="progress-msg">Analyzing...</span>
-              <span id="progress-pct">0%</span>
-            </div>
-            <div class="progress-track">
-              <div class="progress-fill" id="progress-fill"></div>
-            </div>
-          </div>
-
         </div>
 
         <!-- Right column -->
@@ -246,12 +223,12 @@
 
           <!-- Playback bar -->
           <div class="playback-bar">
-            <button class="btn btn-ghost btn-sm" id="btn-play-orig" onclick="playOriginal()" disabled>▶ ORIGINAL</button>
+            <button class="btn btn-ghost btn-sm" id="btn-play-orig" disabled>▶ ORIGINAL</button>
             <div class="playback-sep"></div>
-            <button class="btn btn-ghost btn-sm" id="btn-play-clean" onclick="playCleaned()" disabled>▶ EDITED</button>
+            <button class="btn btn-ghost btn-sm" id="btn-play-clean" disabled>▶ EDITED</button>
             <div class="playback-sep"></div>
-            <button class="btn btn-ghost btn-sm" id="btn-stop" onclick="stopAudio()" disabled>■ STOP</button>
-            <div class="timeline-track" id="timeline-track" onclick="seekAudio(event)">
+            <button class="btn btn-ghost btn-sm" id="btn-stop" disabled>■ STOP</button>
+            <div class="timeline-track" id="timeline-track">
               <div class="timeline-fill" id="timeline-fill"></div>
             </div>
             <span class="playback-time" id="playback-time">—</span>
@@ -262,8 +239,8 @@
             <span class="section-label">Issues</span>
             <span class="pill pill-accent" id="issues-count">0</span>
             <div class="grow"></div>
-            <button class="btn btn-ghost btn-sm" id="btn-export-labels" onclick="exportLabels()" disabled>Export Labels</button>
-            <button class="btn btn-ghost btn-sm" id="btn-export-wav" onclick="exportWav()" disabled>Export WAV</button>
+            <button class="btn btn-ghost btn-sm" id="btn-export-labels" disabled>Export Labels</button>
+            <button class="btn btn-ghost btn-sm" id="btn-export-wav" disabled>Export WAV</button>
           </div>
 
           <!-- Issues table -->
@@ -292,72 +269,93 @@
          COACHING TAB
     ══════════════════════════════════════════════════════════════ -->
     <div class="tab-panel" id="tab-coaching">
-      <div class="page-title">Voice Coaching</div>
-      <div class="page-sub">Score your recording against professional benchmarks</div>
 
-      <div class="grid-2 gap-4">
+      <!-- Coaching subtab bar -->
+      <nav class="subtabbar">
+        <button class="subtab-item active" data-subtab="coaching-score">Scoring</button>
+        <button class="subtab-item" data-subtab="coaching-characters">Characters</button>
+      </nav>
 
-        <!-- Left: profile + score -->
-        <div class="flex-col gap-4">
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title">Voice Profile</div>
-            </div>
-            <div class="form-row">
-              <label class="label">Select Style</label>
-              <select class="select" id="coaching-profile" onchange="scoreRecording()">
-                <option>Loading...</option>
-              </select>
-            </div>
-            <p class="text-sm text-muted" id="profile-desc" style="margin-top:8px"></p>
-          </div>
+      <!-- ── Subtab: Scoring ── -->
+      <div class="subtab-panel active" id="subtab-coaching-score">
+        <div class="grid-2 gap-4">
 
-          <div class="card">
-            <div class="card-title" style="margin-bottom:0">Overall Score</div>
-            <div class="score-hero">
-              <div class="score-number" id="score-overall">—</div>
-              <div class="score-grade" id="score-grade"></div>
+          <!-- Left: profile + score -->
+          <div class="flex-col gap-4">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Voice Profile</div>
+              </div>
+              <div class="form-row">
+                <label class="label">Select Style</label>
+                <select class="select" id="coaching-profile" onchange="scoreRecording()">
+                  <option>Loading...</option>
+                </select>
+              </div>
+              <p class="text-sm text-muted" id="profile-desc" style="margin-top:8px"></p>
             </div>
-            <div id="dim-bars"></div>
-          </div>
-        </div>
 
-        <!-- Right: tips + AI + retake -->
-        <div class="flex-col gap-4">
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title">Coaching Tips</div>
-            </div>
-            <div id="coaching-tips">
-              <div class="empty-state"><div class="empty-state-icon">💡</div>Score a recording to get tips</div>
+            <div class="card">
+              <div class="card-title" style="margin-bottom:0">Overall Score</div>
+              <div class="score-hero">
+                <div class="score-number" id="score-overall">—</div>
+                <div class="score-grade" id="score-grade"></div>
+              </div>
+              <div id="dim-bars"></div>
             </div>
           </div>
 
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title">AI Coaching</div>
-              <div class="flex gap-2">
-                <button class="btn btn-primary btn-sm" id="btn-ai-coach" onclick="getAICoaching()" disabled>
-                  ✨ Get AI Coaching
-                </button>
-                <button class="btn btn-ghost btn-sm" onclick="cancelAI()">Cancel</button>
+          <!-- Right: tips + AI + retake -->
+          <div class="flex-col gap-4">
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">Coaching Tips</div>
+              </div>
+              <div id="coaching-tips">
+                <div class="empty-state"><div class="empty-state-icon">💡</div>Score a recording to get tips</div>
               </div>
             </div>
-            <div class="log-box" id="ai-output" data-placeholder="AI coaching will appear here..."></div>
+
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">AI Coaching</div>
+                <div class="flex gap-2">
+                  <button class="btn btn-primary btn-sm" id="btn-ai-coach" disabled>
+                    ✨ Get AI Coaching
+                  </button>
+                  <button class="btn btn-ghost btn-sm" onclick="cancelAI()">Cancel</button>
+                </div>
+              </div>
+              <div class="log-box" id="ai-output" data-placeholder="AI coaching will appear here..."></div>
+              <div class="ai-chat-wrap" id="ai-chat-wrap" style="display:none">
+                <div class="ai-chat-log" id="ai-chat-log"></div>
+                <div class="ai-chat-input-row">
+                  <input class="ai-chat-input" id="ai-chat-input" type="text" placeholder="Ask a follow-up question..." autocomplete="off">
+                  <button class="btn btn-primary btn-sm" id="ai-chat-send">Send</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">↩ Retake Guide</div>
+              </div>
+              <div class="banner" id="retake-summary" style="margin-bottom:12px">
+                Analyze a recording to get retake guidance.
+              </div>
+              <div id="retake-regions"></div>
+            </div>
           </div>
 
-          <div class="card">
-            <div class="card-header">
-              <div class="card-title">↩ Retake Guide</div>
-            </div>
-            <div class="banner" id="retake-summary" style="margin-bottom:12px">
-              Analyze a recording to get retake guidance.
-            </div>
-            <div id="retake-regions"></div>
-          </div>
         </div>
+      </div><!-- /subtab-coaching-score -->
 
-      </div>
+      <!-- ── Subtab: Characters ── -->
+      <div class="subtab-panel" id="subtab-coaching-characters">
+        <div class="page-sub" style="margin-bottom:16px">Browse and study vocal archetypes for character work</div>
+        <div id="characters-grid"></div>
+      </div><!-- /subtab-coaching-characters -->
+
     </div><!-- /tab-coaching -->
 
 
@@ -388,21 +386,25 @@
 
 
     <!-- ══════════════════════════════════════════════════════════
-         CHARACTERS TAB
-    ══════════════════════════════════════════════════════════════ -->
-    <div class="tab-panel" id="tab-characters">
-      <div class="page-title">Character Archetypes</div>
-      <div class="page-sub">Browse and study vocal archetypes for character work</div>
-      <div class="grid-auto" id="characters-grid"></div>
-    </div><!-- /tab-characters -->
-
-
-    <!-- ══════════════════════════════════════════════════════════
          HISTORY TAB
     ══════════════════════════════════════════════════════════════ -->
     <div class="tab-panel" id="tab-history">
       <div class="page-title">Session History</div>
       <div class="page-sub">Your last 200 recorded sessions</div>
+
+      <!-- Score trend chart -->
+      <div class="history-chart-wrap" id="history-chart-wrap" style="display:none">
+        <div class="history-chart-header">
+          <div class="history-chart-title">Overall Score — Progress Over Time</div>
+          <div class="history-trend-badge flat" id="history-trend-badge">— trend</div>
+        </div>
+        <canvas id="history-canvas" height="160"></canvas>
+        <div class="history-chart-tooltip" id="history-chart-tooltip">
+          <span class="tip-score" id="tip-score"></span>
+          <span id="tip-meta"></span>
+        </div>
+      </div>
+
       <div class="card">
         <div id="history-list">
           <div class="empty-state"><div class="empty-state-icon">📁</div>No history yet</div>
@@ -509,6 +511,21 @@
     </div><!-- /tab-settings -->
 
   </main><!-- /main -->
+
+  <!-- ── Status bar ──────────────────────────────────────────── -->
+  <footer class="statusbar">
+    <span class="sb-item sb-error" id="sb-update" style="display:none">UPDATE CHECK FAILED</span>
+    <div class="sb-spacer"></div>
+    <span class="sb-item" id="sb-ffmpeg"><span class="sb-dot"></span><span id="sb-ffmpeg-lbl">FFMPEG</span></span>
+    <span class="sb-sep"></span>
+    <span class="sb-item" id="sb-ai"><span class="sb-dot"></span><span id="sb-ai-lbl">AI OFFLINE</span></span>
+    <span class="sb-sep"></span>
+    <span class="sb-version" id="sb-version">v2.1</span>
+    <span class="sb-sep"></span>
+    <button class="sb-btn" onclick="openFeedback()">FEEDBACK</button>
+    <button class="sb-btn" onclick="openUpdates()">UPDATES</button>
+  </footer>
+
 </div><!-- /shell -->
 
 <!-- ── Character Detail Modal ──────────────────────────────────── -->
@@ -541,7 +558,7 @@
     </div>
     <div class="modal-footer">
       <button class="btn btn-ghost" onclick="closeFeedback()">Cancel</button>
-      <button class="btn btn-primary" id="btn-send-feedback" onclick="sendFeedback()">Send Feedback</button>
+      <button class="btn btn-primary" id="btn-send-feedback">Send Feedback</button>
     </div>
   </div>
 </div>
