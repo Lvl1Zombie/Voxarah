@@ -56,9 +56,10 @@ function handleWS(msg) {
   switch (msg.type) {
 
     case 'status':
-      setDot('dot-ai',     msg.ai_online ? 'green pulse' : '');
-      el('lbl-ai').textContent = msg.ai_online ? 'AI LIVE' : 'AI OFFLINE';
-      setDot('dot-ffmpeg', msg.ffmpeg_ok  ? 'green' : 'red');
+      setChip('chip-ai', msg.ai_online ? 'online' : 'offline',
+              msg.ai_online ? 'AI LIVE' : 'AI OFFLINE');
+      setChip('chip-ffmpeg', msg.ffmpeg_ok ? 'online' : 'offline',
+              msg.ffmpeg_ok ? 'FFMPEG' : 'NO FFMPEG');
       if (msg.version) el('lbl-version').textContent = 'v' + msg.version;
       break;
 
@@ -110,9 +111,12 @@ const el   = id => document.getElementById(id);
 const qs   = (s, root=document) => root.querySelector(s);
 const qsa  = (s, root=document) => [...root.querySelectorAll(s)];
 
-function setDot(id, classes) {
-  const d = el(id);
-  d.className = 'status-dot ' + classes;
+function setChip(id, state, label) {
+  const chip = el(id);
+  if (!chip) return;
+  chip.className = 'status-chip' + (state ? ' ' + state : '');
+  const span = chip.querySelector('span');
+  if (span && label) span.textContent = label;
 }
 
 function rangeUpdate(input, labelId, fmt) {
@@ -122,10 +126,14 @@ function rangeUpdate(input, labelId, fmt) {
 // ── Toast ─────────────────────────────────────────────────────────────────────
 function toast(msg, type='info', duration=4000) {
   const t = document.createElement('div');
-  t.className = `toast ${type}`;
-  t.textContent = msg;
+  const cssType = type === 'error' ? 'toast-error' : type === 'success' ? 'toast-success' : '';
+  t.className = `toast${cssType ? ' ' + cssType : ''}`;
+  t.innerHTML = `<div class="toast-dot"></div><span>${msg}</span>`;
   el('toast-container').appendChild(t);
-  setTimeout(() => t.remove(), duration);
+  setTimeout(() => {
+    t.classList.add('hiding');
+    setTimeout(() => t.remove(), 300);
+  }, duration);
 }
 
 // ── Tab navigation ─────────────────────────────────────────────────────────────
@@ -307,7 +315,7 @@ function onAnalysisDone(results) {
 
   // Color zero-counts green
   ['stat-stutter-count','stat-unclear-count','stat-breath-count','stat-mouth-count'].forEach(id => {
-    el(id).className = 'stat-value' + (el(id).textContent === '0' ? ' green' : '');
+    el(id).style.color = el(id).textContent === '0' ? 'var(--green)' : '';
   });
 
   // Pitch badge
@@ -315,7 +323,7 @@ function onAnalysisDone(results) {
   const ratingColors = { EXPRESSIVE: 'var(--green)', MODERATE: 'var(--yellow)', FLAT: 'var(--red)' };
   const badge = el('pitch-badge');
   badge.textContent = ps.rating ? `${ps.rating}  ±${Math.round(ps.std_hz||0)} Hz` : '';
-  badge.style.color = ratingColors[ps.rating] || 'var(--text-muted)';
+  badge.style.color = ratingColors[ps.rating] || 'var(--text-3)';
 
   // Canvases
   drawWaveform();
@@ -493,15 +501,14 @@ function renderIssues(issues) {
     tbody.innerHTML = `<tr><td colspan="4"><div class="empty-state"><div class="empty-state-icon">✅</div>No issues found</div></td></tr>`;
     return;
   }
-  const sevColors = { pause:'#F5C518', stutter:'#f76a8a', unclear:'#9b6bff', breath:'#4ab8d8', mouth_noise:'#f5a623' };
   tbody.innerHTML = issues.map(r => {
-    const c   = sevColors[r.type] || '#666680';
-    const bars = [1,2,3].map(n => `<div class="sev-bar" style="background:${n<=r.severity ? c : '#2a2a3a'}"></div>`).join('');
+    const sevClass = r.severity >= 3 ? 'severity-high' : r.severity >= 2 ? 'severity-medium' : 'severity-low';
+    const sevLabel = r.severity >= 3 ? 'HIGH' : r.severity >= 2 ? 'MED' : 'LOW';
     return `<tr>
-      <td><span class="flag-badge flag-${r.type}">${r.type.replace('_',' ')}</span></td>
+      <td><span class="issue-type">${r.type.replace('_',' ')}</span></td>
       <td class="text-mono text-muted text-xs">${r.time}</td>
       <td class="text-sm text-dim">${r.desc}</td>
-      <td><div class="sev-bars">${bars}</div></td>
+      <td><span class="severity ${sevClass}">${sevLabel}</span></td>
     </tr>`;
   }).join('');
 }
@@ -669,7 +676,7 @@ async function scoreRecording() {
   const tipsEl = el('coaching-tips');
   if (tips.length) {
     tipsEl.innerHTML = tips.map(t =>
-      `<div class="tip-item"><span class="tip-bullet">›</span>${t}</div>`
+      `<div class="tip-card"><span class="tip-icon">›</span><span class="tip-text">${t}</span></div>`
     ).join('');
   } else {
     tipsEl.innerHTML = '<div class="text-muted text-sm">No tips available for this profile.</div>';
@@ -721,31 +728,26 @@ function initCompare() {
 
 function buildCompareCol(i) {
   return `
-  <div class="compare-col" id="cmp-col-${i}">
+  <div class="card compare-col" id="cmp-col-${i}">
     <div class="compare-col-header">
-      <span class="take-label">TAKE ${i + 1}</span>
-      <span class="best-badge">BEST</span>
+      <span class="compare-col-title">TAKE ${i + 1}</span>
       <div class="grow"></div>
-      <button class="btn btn-icon" title="Clear" onclick="clearTake(${i})">✕</button>
+      <button class="btn btn-ghost btn-sm" style="padding:4px 8px;font-size:11px" title="Clear" onclick="clearTake(${i})">✕</button>
     </div>
-    <div style="padding:12px">
-      <label style="display:block;margin-bottom:8px">
-        <input type="file" style="display:none" id="cmp-input-${i}"
-               onchange="uploadTake(${i},this.files[0])" accept=".wav,.mp3,.m4a,.flac,.ogg">
-        <button class="btn btn-ghost btn-sm btn-full"
-                onclick="el('cmp-input-${i}').click()">Load File</button>
-      </label>
-      <div class="text-xs text-muted text-mono" id="cmp-fname-${i}" style="margin-bottom:4px"></div>
-      <div class="text-xs text-muted" id="cmp-status-${i}"></div>
-    </div>
+    <label style="display:block;margin-bottom:var(--sp-2)">
+      <input type="file" style="display:none" id="cmp-input-${i}"
+             onchange="uploadTake(${i},this.files[0])" accept=".wav,.mp3,.m4a,.flac,.ogg">
+      <button class="btn btn-ghost btn-sm btn-full"
+              onclick="el('cmp-input-${i}').click()">Load File</button>
+    </label>
+    <div class="text-xs text-mono text-muted" id="cmp-fname-${i}" style="margin-bottom:var(--sp-1)"></div>
+    <div class="text-xs text-muted" id="cmp-status-${i}" style="margin-bottom:var(--sp-3)"></div>
     <div class="compare-score-big" id="cmp-score-${i}">—</div>
-    <div class="compare-grade" id="cmp-grade-${i}"></div>
-    <div style="padding:0 12px 8px">
-      <button class="btn btn-yellow btn-sm btn-full" id="cmp-analyze-btn-${i}"
-              onclick="analyzeTake(${i})" disabled>Analyze</button>
-    </div>
-    <div style="padding:0 12px 12px" id="cmp-dims-${i}"></div>
-    <div style="padding:0 12px 12px;border-top:1px solid var(--border)" id="cmp-stats-${i}"></div>
+    <div class="text-muted text-sm" id="cmp-grade-${i}" style="margin-bottom:var(--sp-3)"></div>
+    <button class="btn btn-yellow btn-sm btn-full" id="cmp-analyze-btn-${i}"
+            onclick="analyzeTake(${i})" disabled style="margin-bottom:var(--sp-4)">Analyze</button>
+    <div id="cmp-dims-${i}"></div>
+    <div id="cmp-stats-${i}" style="margin-top:var(--sp-3);padding-top:var(--sp-3);border-top:1px solid var(--border)"></div>
   </div>`;
 }
 
@@ -780,7 +782,7 @@ function updateCompareStatus(slot, msg, color='muted') {
     lbl.style.color = color === 'yellow' ? 'var(--yellow)'
                     : color === 'red'    ? 'var(--red)'
                     : color === 'green'  ? 'var(--green)'
-                    : 'var(--text-muted)';
+                    : 'var(--text-3)';
   }
 }
 
@@ -829,7 +831,7 @@ function refreshComparisons() {
     .filter(x => x.r);
   if (scored.length < 2) return;
   const best = scored.reduce((a,b) => b.r.overall > a.r.overall ? b : a);
-  scored.forEach(({ i }) => el(`cmp-col-${i}`).classList.toggle('best', i === best.i));
+  scored.forEach(({ i }) => el(`cmp-col-${i}`).classList.toggle('compare-best', i === best.i));
   const top = best.r;
   const topDims = Object.entries(top.scores || {})
     .sort((a,b)=>b[1]-a[1]).slice(0,2)
@@ -848,7 +850,7 @@ async function clearTake(slot) {
   el(`cmp-dims-${slot}`).innerHTML      = '';
   el(`cmp-stats-${slot}`).innerHTML     = '';
   el(`cmp-analyze-btn-${slot}`).disabled = true;
-  el(`cmp-col-${slot}`).classList.remove('best');
+  el(`cmp-col-${slot}`).classList.remove('compare-best');
   S.compareSlots[slot] = {};
 }
 
@@ -869,12 +871,12 @@ async function loadCharacters() {
   grid.innerHTML = Object.entries(_characters).map(([name, data]) => {
     const emoji = name.split(' ')[0];
     const label = name.replace(/^\S+\s*/, '');
-    const diffClass = { Beginner:'diff-beginner', Intermediate:'diff-intermediate', Advanced:'diff-advanced' }[data.difficulty] || '';
-    return `<div class="character-card" onclick="showCharacter('${encodeURIComponent(name)}')">
-      <div class="char-emoji">${emoji}</div>
+    const diffColor = { Beginner: 'var(--green)', Intermediate: 'var(--yellow)', Advanced: 'var(--red)' }[data.difficulty] || 'var(--text-3)';
+    return `<div class="char-card" onclick="showCharacter('${encodeURIComponent(name)}')">
+      <span class="char-icon">${emoji}</span>
       <div class="char-name">${label}</div>
       <div class="char-cat">${data.category}</div>
-      <div class="char-diff ${diffClass}">${data.difficulty}</div>
+      <div class="char-cat" style="margin-top:4px;color:${diffColor}">${data.difficulty}</div>
     </div>`;
   }).join('');
 }

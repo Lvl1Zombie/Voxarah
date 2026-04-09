@@ -6,7 +6,7 @@
 <title>Voxarah — Voice Production Suite</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="/static/css/style.css">
 </head>
 <body>
@@ -42,20 +42,21 @@
         <div class="logo-wordmark">VOX<span>A</span>RAH</div>
       </div>
     </div>
+    <div class="logo-sep"></div>
     <span class="logo-sub">VOICE PRODUCTION SUITE</span>
 
     <div class="header-spacer"></div>
 
     <div class="header-status">
-      <div class="status-indicator">
-        <div class="status-dot" id="dot-ffmpeg"></div>
+      <div class="status-chip" id="chip-ffmpeg">
+        <div class="status-dot-sm"></div>
         <span id="lbl-ffmpeg">FFMPEG</span>
       </div>
-      <div class="status-indicator">
-        <div class="status-dot" id="dot-ai"></div>
+      <div class="status-chip" id="chip-ai">
+        <div class="status-dot-sm"></div>
         <span id="lbl-ai">AI OFFLINE</span>
       </div>
-      <span id="lbl-version" style="color:var(--text-ghost)">v2.1</span>
+      <span class="version-tag" id="lbl-version">v2.1</span>
     </div>
   </header>
 
@@ -246,9 +247,9 @@
           <!-- Playback bar -->
           <div class="playback-bar">
             <button class="btn btn-ghost btn-sm" id="btn-play-orig" onclick="playOriginal()" disabled>▶ ORIGINAL</button>
-            <div style="width:1px;height:16px;background:var(--border)"></div>
+            <div class="playback-sep"></div>
             <button class="btn btn-ghost btn-sm" id="btn-play-clean" onclick="playCleaned()" disabled>▶ EDITED</button>
-            <div style="width:1px;height:16px;background:var(--border)"></div>
+            <div class="playback-sep"></div>
             <button class="btn btn-ghost btn-sm" id="btn-stop" onclick="stopAudio()" disabled>■ STOP</button>
             <div class="timeline-track" id="timeline-track" onclick="seekAudio(event)">
               <div class="timeline-fill" id="timeline-fill"></div>
@@ -266,7 +267,7 @@
           </div>
 
           <!-- Issues table -->
-          <div style="overflow:auto;max-height:320px;border:1px solid var(--border);border-radius:var(--radius-sm)">
+          <div class="table-wrap">
             <table class="issues-table">
               <thead>
                 <tr>
