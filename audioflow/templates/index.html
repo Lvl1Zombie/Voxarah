@@ -22,6 +22,9 @@
 
 <div class="shell">
 
+  <!-- Invisible drag bar — covers the full top edge for window dragging -->
+  <div id="drag-bar" data-tauri-drag-region></div>
+
   <!-- ── Title bar (Tauri frameless mode only) ─────────────── -->
   <div id="titlebar" data-tauri-drag-region>
     <span class="titlebar-title" data-tauri-drag-region>Voxarah</span>
@@ -307,6 +310,22 @@
 
           <!-- Right: tips + AI + retake -->
           <div class="flex-col gap-4">
+
+            <!-- Script & Notes -->
+            <div class="card">
+              <div class="card-header">
+                <div class="card-title">📄 Script &amp; Notes</div>
+                <button class="btn btn-ghost btn-sm" id="btn-clear-script" onclick="clearScriptPanel()">Clear</button>
+              </div>
+              <p class="text-sm text-muted" style="margin-bottom:8px">Paste your script and delivery instructions so AI coaching is tailored to your specific take.</p>
+              <label class="label" style="margin-bottom:4px">Script / Dialogue</label>
+              <textarea class="textarea" id="script-text" rows="4"
+                placeholder="Paste the script or dialogue you're recording here..."></textarea>
+              <label class="label" style="margin-top:10px;margin-bottom:4px">Delivery Instructions &amp; Notes</label>
+              <textarea class="textarea" id="delivery-notes" rows="3"
+                placeholder="e.g. 'Author wants warm and intimate, not dramatic' · 'Client feedback: slow down on the second paragraph' · 'Latin words must be correctly pronounced'"></textarea>
+            </div>
+
             <div class="card">
               <div class="card-header">
                 <div class="card-title">Coaching Tips</div>
@@ -522,8 +541,8 @@
     <span class="sb-sep"></span>
     <span class="sb-version" id="sb-version">v2.1</span>
     <span class="sb-sep"></span>
-    <button class="sb-btn" onclick="openFeedback()">FEEDBACK</button>
-    <button class="sb-btn" onclick="openUpdates()">UPDATES</button>
+    <button class="sb-btn" id="btn-feedback">FEEDBACK</button>
+    <button class="sb-btn" id="btn-updates">UPDATES</button>
   </footer>
 
 </div><!-- /shell -->

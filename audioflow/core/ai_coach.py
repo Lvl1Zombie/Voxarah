@@ -14,7 +14,7 @@ DEFAULT_MODEL = "llama3.1:8b"
 
 
 def _build_prompt(profile_name, scores, feedback, character_name=None,
-                  raw_stats=None, pitch_stats=None):
+                  raw_stats=None, pitch_stats=None, script=None, notes=None):
     """Build a coaching prompt from analysis results."""
     lines = []
     if character_name:
@@ -85,11 +85,21 @@ def _build_prompt(profile_name, scores, feedback, character_name=None,
         for dim, msg in feedback:
             lines.append(f"  - {dim}: {msg}")
 
+    if script:
+        lines.append(f"\nScript / dialogue being recorded:\n\"\"\"\n{script[:2000]}\n\"\"\"")
+        lines.append("Use the script above to assess whether the pacing, emphasis, and delivery "
+                     "suit the material — consider sentence length, emotional beats, and character voice.")
+
+    if notes:
+        lines.append(f"\nDelivery instructions / director notes:\n{notes[:1000]}")
+        lines.append("Evaluate whether the recording meets these specific requirements and call out "
+                     "any areas where the delivery may not yet match the instructions.")
+
     lines.append(
-        "\nBased on these specific measurements, give actionable coaching advice in 4-6 sentences. "
-        "Reference the actual numbers (WPM, stutter count, pitch variation etc.) when relevant. "
-        "Be encouraging but direct. Focus on the 1-2 weakest areas. "
-        "If the score is high, congratulate and suggest refinements."
+        "\nBased on all of the above, give specific actionable coaching advice in 4-6 sentences. "
+        "Reference actual measurements (WPM, stutter count, pitch variation) where helpful. "
+        "Be encouraging but direct. If a script or notes were provided, prioritise feedback "
+        "that addresses those specific requirements. Focus on the 1-2 areas needing the most work."
     )
     return "\n".join(lines)
 
@@ -179,6 +189,7 @@ class AICoach:
 
     def get_coaching(self, profile_name, scores, feedback,
                      character_name=None, raw_stats=None, pitch_stats=None,
+                     script=None, notes=None,
                      on_token=None, on_done=None):
         """
         Generate coaching advice. Streams tokens via on_token(str) callback.
@@ -190,7 +201,8 @@ class AICoach:
 
         def _run():
             prompt = _build_prompt(profile_name, scores, feedback,
-                                   character_name, raw_stats, pitch_stats)
+                                   character_name, raw_stats, pitch_stats,
+                                   script, notes)
 
             if not self._online:
                 # Template fallback

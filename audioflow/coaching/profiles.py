@@ -133,6 +133,26 @@ VOICE_PROFILES = {
             "Chapter breaks and paragraph pauses are separate from 'long pauses' — plan them.",
             "Any stutter breaks the listener's immersion; these all need re-records.",
         ]
+    },
+    "Children's Storyteller": {
+        "description": "Warm, expressive, playful. Keeps young listeners engaged through vocal variety and clear pacing.",
+        "emoji": "🧸",
+        "speech_rate_wpm":     (100, 155),   # slower than adult — kids need processing time
+        "pause_ratio":         (0.12, 0.35), # generous pauses — let imagination catch up
+        "energy_consistency": (0.00, 0.25),  # variation is good — monotone loses kids fast
+        "dynamic_range_db":   (18, 42),      # wide range for character voices and dramatic moments
+        "max_long_pause_sec":  2.5,           # dramatic pauses are a storytelling tool
+        "stutter_tolerance":   0.02,          # intentional character stumbles are fine
+        "clarity_floor_db":   -40,
+        "pitch_std_hz":        (24, 70),     # big pitch swings — wonder, suspense, excitement
+        "tips": [
+            "Slow down more than feels natural — children need extra time to visualize what they hear.",
+            "Use pitch to signal characters: go higher for small/young characters, lower for big/scary ones.",
+            "Pause before reveals and big moments — the anticipation is half the magic for kids.",
+            "Vary your energy wildly between quiet suspense and big excited moments to hold attention.",
+            "Smile on happy lines, whisper on secrets, get BIG on exciting moments — commit fully.",
+            "Mouth noises and breaths are more forgivable here, but stutters break the story spell.",
+        ]
     }
 }
 
@@ -307,6 +327,26 @@ def score_recording(results: dict, profile_name: str) -> Dict:
     weights = {'pause_ratio': 0.20, 'stutters': 0.25, 'pause_length': 0.15,
                'consistency': 0.15, 'clarity': 0.10, 'pitch': 0.15}
     overall = int(sum(scores.get(k, 70) * weights[k] for k in weights))
+
+    # ── Children's Storyteller — extra engagement checks ─────────
+    if profile_name == "Children's Storyteller":
+        # Kids lose interest fast with flat energy — penalise monotone more
+        if pitch_stats and pitch_stats.get('std_hz', 0) < 20:
+            feedback.append(("🧸 Engagement",
+                f"Your pitch is quite flat (±{pitch_stats.get('std_hz',0):.0f} Hz) for a children's story. "
+                f"Kids disengage quickly without vocal variety. Try exaggerating your character voices "
+                f"and letting your pitch rise on exciting words and drop on serious ones."))
+        # Flag if too fast for kids
+        wpm = stats.get('wpm', 0)
+        if wpm and wpm > 155:
+            feedback.append(("🧸 Engagement",
+                f"At {wpm:.0f} WPM you're speaking faster than most children can comfortably follow. "
+                f"Children's stories land best at 100–155 WPM. Slow down and let each image form."))
+        # Reward good variation
+        if pitch_stats and pitch_stats.get('std_hz', 0) > 35:
+            feedback.append(("🧸 Engagement",
+                f"Great vocal variety (±{pitch_stats.get('std_hz',0):.0f} Hz)! "
+                f"That level of expressiveness is exactly what keeps young listeners locked in."))
 
     # ── Style Match Tips ──────────────────────────────────────────
     tips = profile['tips']

@@ -561,6 +561,8 @@ async def coaching_ai(body: Dict[str, Any]):
     raw_stats    = state.results.get("stats", {})
     pitch_stats  = state.results.get("pitch_stats", {})
     character_name = body.get("character_name")
+    script       = body.get("script", "").strip()
+    notes        = body.get("notes", "").strip()
 
     def on_token(t: str):
         _broadcast({"type": "ai_token", "token": t})
@@ -575,6 +577,8 @@ async def coaching_ai(body: Dict[str, Any]):
         raw_stats=raw_stats,
         pitch_stats=pitch_stats,
         character_name=character_name,
+        script=script,
+        notes=notes,
         on_token=on_token,
         on_done=on_done,
     )

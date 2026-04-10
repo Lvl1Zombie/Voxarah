@@ -153,6 +153,18 @@ html:not(.tauri-mode) #boot-overlay { display: none; }
 @keyframes spin { to { transform: rotate(360deg); } }
 
 
+/* Invisible drag bar — sits at the very top, lets user grab the window edge */
+#drag-bar {
+  display: none;
+  position: fixed;
+  top: 0; left: 0; right: 280px; /* stops before the status chips on the right */
+  height: 54px; /* matches header height */
+  z-index: 9998; /* below titlebar controls but above content */
+  cursor: grab;
+  -webkit-app-region: drag;
+}
+.tauri-mode #drag-bar { display: block; }
+
 /* ══════════════════════════════════════════════════════════════════════════════
    WINDOW CONTROLS (Tauri frameless — floating corner buttons, no bar)
    ══════════════════════════════════════════════════════════════════════════════ */
@@ -283,6 +295,7 @@ html:not(.tauri-mode) #boot-overlay { display: none; }
   display: flex;
   align-items: center;
   gap: var(--sp-5);
+  padding-right: 110px; /* clear the 3 titlebar buttons (~32px each) */
 }
 
 .status-chip {
@@ -407,6 +420,8 @@ html:not(.tauri-mode) #boot-overlay { display: none; }
   display: flex;
   align-items: center;
   padding: 0 var(--sp-5);
+  position: relative;
+  z-index: 20;
   background: var(--bg-base);
   border-top: 1px solid var(--border);
   gap: var(--sp-4);
@@ -456,6 +471,7 @@ html:not(.tauri-mode) #boot-overlay { display: none; }
   transition: color var(--t-fast);
 }
 .sb-btn:hover { color: var(--yellow); }
+#btn-feedback { color: var(--yellow); }
 
 
 /* ══════════════════════════════════════════════════════════════════════════════

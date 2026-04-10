@@ -803,7 +803,14 @@ async function getAICoaching() {
   el('ai-chat-wrap').style.display = 'none';
   el('ai-chat-log').innerHTML = '';
   const profile = el('coaching-profile')?.value || '';
-  await apiFetch('/api/coaching/ai', 'POST', { profile });
+  const script  = (el('script-text')?.value   || '').trim();
+  const notes   = (el('delivery-notes')?.value || '').trim();
+  await apiFetch('/api/coaching/ai', 'POST', { profile, script, notes });
+}
+
+function clearScriptPanel() {
+  el('script-text').value   = '';
+  el('delivery-notes').value = '';
 }
 
 function appendAI(token) {
@@ -1451,7 +1458,12 @@ async function sendFeedback() {
   const res = await apiFetch('/api/feedback', 'POST', { message: msg });
   if (res) {
     el('feedback-status').textContent = 'Sent! Thank you.';
-    setTimeout(() => closeFeedback(), 1800);
+    setTimeout(() => {
+      closeFeedback();
+      el('feedback-text').value = '';
+      el('feedback-status').textContent = '';
+      el('btn-send-feedback').disabled = false;
+    }, 1800);
   } else {
     el('feedback-status').textContent = 'Failed. Check your connection.';
     el('btn-send-feedback').disabled = false;
@@ -1586,6 +1598,8 @@ function initButtons() {
   el('ai-chat-input').addEventListener('keydown', e => {
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendChatMessage(); }
   });
+  el('btn-feedback').addEventListener('click', openFeedback);
+  el('btn-updates').addEventListener('click', openUpdates);
 }
 
 document.addEventListener('DOMContentLoaded', boot);
